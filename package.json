@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.17.0",
+    "@vercel/blob": "^2.4.0",
     "bcryptjs": "^3.0.3",
     "date-fns": "^4.1.0",
     "jose": "^6.1.3",

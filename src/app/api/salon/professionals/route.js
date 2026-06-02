@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { query, execute } from '@/lib/db';
 import { generateId } from '@/lib/utils';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
+import { uploadImage } from '@/lib/upload';
 
 export async function GET(request) {
     try {
@@ -251,27 +250,6 @@ export async function DELETE(request) {
     }
 }
 
-async function saveAvatar(file, professionalId) {
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    
-    // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
-        throw new Error('Tipo de archivo no permitido');
-    }
-    
-    // Max 2MB
-    if (buffer.length > 2 * 1024 * 1024) {
-        throw new Error('La imagen no debe superar 2MB');
-    }
-
-    const ext = file.type.split('/')[1] === 'jpeg' ? 'jpg' : file.type.split('/')[1];
-    const filename = `${professionalId}.${ext}`;
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'avatars');
-    
-    await mkdir(uploadDir, { recursive: true });
-    await writeFile(path.join(uploadDir, filename), buffer);
-    
-    return `/uploads/avatars/${filename}`;
+function saveAvatar(file, professionalId) {
+    return uploadImage(file, 'avatars', professionalId);
 }

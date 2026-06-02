@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { query, execute } from '@/lib/db';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
+import { uploadImage } from '@/lib/upload';
 
 export async function GET(request) {
     try {
@@ -84,24 +83,7 @@ export async function POST(request) {
             return NextResponse.json({ error: 'No se proporcionó archivo' }, { status: 400 });
         }
 
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-        if (!allowedTypes.includes(file.type)) {
-            return NextResponse.json({ error: 'Formato no válido. Usa JPG, PNG o WebP' }, { status: 400 });
-        }
-
-        const buffer = Buffer.from(await file.arrayBuffer());
-        if (buffer.length > 2 * 1024 * 1024) {
-            return NextResponse.json({ error: 'La imagen no debe superar 2MB' }, { status: 400 });
-        }
-
-        const ext = file.type.split('/')[1] === 'jpeg' ? 'jpg' : file.type.split('/')[1];
-        const filename = `logo-${user.tenantId}.${ext}`;
-        const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'logos');
-
-        await mkdir(uploadDir, { recursive: true });
-        await writeFile(path.join(uploadDir, filename), buffer);
-
-        const logoUrl = `/uploads/logos/${filename}`;
+        const logoUrl = await uploadImage(file, 'logos', `logo-${user.tenantId}`);
         await execute(
             `UPDATE tenants SET logo_url = ?, updated_at = datetime('now') WHERE id = ?`,
             [logoUrl, user.tenantId]

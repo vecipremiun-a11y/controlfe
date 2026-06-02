@@ -2,24 +2,10 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { query, execute } from '@/lib/db';
 import { generateId } from '@/lib/utils';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
+import { uploadImage } from '@/lib/upload';
 
-async function saveProductImage(file, productId) {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
-        throw new Error('Formato no válido. Usa JPG, PNG o WebP');
-    }
-    if (buffer.length > 2 * 1024 * 1024) {
-        throw new Error('La imagen no debe superar 2MB');
-    }
-    const ext = file.type.split('/')[1] === 'jpeg' ? 'jpg' : file.type.split('/')[1];
-    const filename = `${productId}.${ext}`;
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'products');
-    await mkdir(uploadDir, { recursive: true });
-    await writeFile(path.join(uploadDir, filename), buffer);
-    return `/uploads/products/${filename}`;
+function saveProductImage(file, productId) {
+    return uploadImage(file, 'products', productId);
 }
 
 export async function GET(request) {
