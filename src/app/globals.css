@@ -295,12 +295,11 @@ a:hover {
 }
 
 @media (min-width: 1025px) {
-  .layout--collapsed .layout__sidebar {
-    width: var(--sidebar-collapsed);
-  }
-
-  .layout--collapsed .layout__main {
-    margin-left: var(--sidebar-collapsed);
+  /* Al contraer reducimos la propia variable: así el sidebar, el área
+     principal y las páginas que la usan (p.ej. el POS) se ajustan juntas
+     y el carrito permanece pegado al borde derecho. */
+  .layout--collapsed {
+    --sidebar-width: var(--sidebar-collapsed);
   }
 
   /* Ocultar textos al contraer */
