@@ -130,7 +130,7 @@ a:hover {
   left: 0;
   bottom: 0;
   z-index: 40;
-  transition: transform var(--transition-normal);
+  transition: transform var(--transition-normal), width var(--transition-normal);
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -141,6 +141,7 @@ a:hover {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  transition: margin-left var(--transition-normal);
 }
 
 .layout__header {

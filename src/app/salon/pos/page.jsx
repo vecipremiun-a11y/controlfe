@@ -99,7 +99,7 @@ export default function POSPage() {
     if (loading) return <div className="loading-page"><div className="spinner spinner--lg" /></div>;
 
     return (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', height: 'calc(100vh - 64px)', width: 'calc(100vw - var(--sidebar-width))', margin: '-28px', overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', height: 'calc(100vh - 64px)', width: 'calc(100vw - var(--sidebar-width))', margin: '-28px', overflow: 'hidden', transition: 'width var(--transition-normal)' }}>
             {/* Left: Items */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px', overflow: 'hidden' }}>
                 <div className="page-header" style={{ marginBottom: 0 }}>
