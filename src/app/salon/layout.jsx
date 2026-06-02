@@ -52,11 +52,27 @@ const salonMenuItems = [
 export default function SalonLayout({ children }) {
     const router = useRouter();
     const pathname = usePathname();
-    const { user, loading, fetchUser, logout, sidebarOpen, mobileSidebarOpen, toggleMobileSidebar, closeMobileSidebar } = useStore();
+    const { user, loading, fetchUser, logout, sidebarOpen, toggleSidebar, mobileSidebarOpen, toggleMobileSidebar, closeMobileSidebar } = useStore();
 
     useEffect(() => {
         fetchUser();
     }, [fetchUser]);
+
+    // Restaurar estado contraído del menú desde la sesión anterior
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem('sidebar_collapsed');
+            if (stored !== null) {
+                useStore.setState({ sidebarOpen: stored !== 'true' });
+            }
+        } catch (e) { }
+    }, []);
+
+    const handleToggleSidebar = () => {
+        // Tras alternar, "contraído" será el valor actual de sidebarOpen
+        try { localStorage.setItem('sidebar_collapsed', String(sidebarOpen)); } catch (e) { }
+        toggleSidebar();
+    };
 
     useEffect(() => {
         closeMobileSidebar();
@@ -186,7 +202,7 @@ export default function SalonLayout({ children }) {
     };
 
     return (
-        <div className="layout">
+        <div className={`layout ${!sidebarOpen ? 'layout--collapsed' : ''}`}>
             {/* Mobile overlay */}
             {mobileSidebarOpen && (
                 <div
@@ -235,6 +251,7 @@ export default function SalonLayout({ children }) {
                         <nav className="sidebar__nav" key={item.href}>
                             <a
                                 href={item.href}
+                                title={item.label}
                                 className={`sidebar__link ${isActive ? 'sidebar__link--active' : ''}`}
                                 onClick={(e) => {
                                     e.preventDefault();
@@ -242,7 +259,7 @@ export default function SalonLayout({ children }) {
                                 }}
                             >
                                 <Icon className="sidebar__link-icon" size={20} />
-                                {item.label}
+                                <span className="sidebar__link-text">{item.label}</span>
                                 {item.badge && <span className="sidebar__badge">{item.badge}</span>}
                             </a>
                         </nav>
@@ -250,7 +267,7 @@ export default function SalonLayout({ children }) {
                 })}
 
                 {/* Tenant info at bottom */}
-                <div style={{ marginTop: 'auto', padding: '16px 24px', borderTop: '1px solid var(--border-color)' }}>
+                <div className="sidebar__footer" style={{ marginTop: 'auto', padding: '16px 24px', borderTop: '1px solid var(--border-color)' }}>
                     <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Salón</div>
                     <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
                         {user.tenantName || 'Mi Salón'}
@@ -267,6 +284,15 @@ export default function SalonLayout({ children }) {
                             onClick={toggleMobileSidebar}
                             style={{ display: 'none' }}
                             id="mobile-menu-btn"
+                        >
+                            <Menu size={20} />
+                        </button>
+                        <button
+                            className="header__icon-btn"
+                            onClick={handleToggleSidebar}
+                            id="desktop-collapse-btn"
+                            title={sidebarOpen ? 'Contraer menú' : 'Expandir menú'}
+                            aria-label={sidebarOpen ? 'Contraer menú' : 'Expandir menú'}
                         >
                             <Menu size={20} />
                         </button>

@@ -286,6 +286,64 @@ a:hover {
 }
 
 /* ==============================
+   SIDEBAR COLAPSADA (escritorio)
+   ============================== */
+
+/* Botón de contraer: visible en escritorio, oculto en móvil */
+#desktop-collapse-btn {
+  display: flex;
+}
+
+@media (min-width: 1025px) {
+  .layout--collapsed .layout__sidebar {
+    width: var(--sidebar-collapsed);
+  }
+
+  .layout--collapsed .layout__main {
+    margin-left: var(--sidebar-collapsed);
+  }
+
+  /* Ocultar textos al contraer */
+  .layout--collapsed .sidebar__logo-text,
+  .layout--collapsed .sidebar__section-title,
+  .layout--collapsed .sidebar__link-text,
+  .layout--collapsed .sidebar__badge,
+  .layout--collapsed .sidebar__footer {
+    display: none;
+  }
+
+  /* Centrar logo e íconos */
+  .layout--collapsed .sidebar__logo {
+    justify-content: center;
+    padding: 20px 0;
+  }
+
+  .layout--collapsed .sidebar__nav {
+    padding: 0 10px;
+  }
+
+  .layout--collapsed .sidebar__link {
+    justify-content: center;
+    padding: 10px 0;
+  }
+
+  .layout--collapsed .sidebar__link-icon {
+    opacity: 0.85;
+  }
+
+  /* Mantener separación entre secciones aunque el título esté oculto */
+  .layout--collapsed .sidebar__section {
+    padding: 8px 12px 0;
+  }
+}
+
+@media (max-width: 1024px) {
+  #desktop-collapse-btn {
+    display: none !important;
+  }
+}
+
+/* ==============================
    HEADER
    ============================== */
 
