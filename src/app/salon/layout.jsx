@@ -18,7 +18,6 @@ import {
     Settings,
     ChevronLeft,
     Bell,
-    Search,
     LogOut,
     Menu,
     X,
@@ -317,10 +316,6 @@ export default function SalonLayout({ children }) {
                         >
                             <Menu size={20} />
                         </button>
-                        <div className="header__search">
-                            <Search className="header__search-icon" size={16} />
-                            <input type="text" placeholder="Buscar clientes, servicios..." />
-                        </div>
                     </div>
                     <div className="header__right">
                         {/* Notifications bell */}
