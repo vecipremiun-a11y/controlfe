@@ -119,11 +119,11 @@ export default function POSPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px', overflow: 'auto', flex: 1, alignContent: 'start' }}>
                     {filteredItems.map(item => (
                         <div key={item.id} className="card" onClick={() => addToCart(item, tab === 'services' ? 'service' : 'product')}
-                            style={{ cursor: 'pointer', transition: 'all 150ms', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+                            style={{ cursor: 'pointer', transition: 'all 150ms', display: 'flex', flexDirection: 'column' }}
                             onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary-400)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
                             onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.transform = 'none'; }}>
                             <div className="card__body" style={{ padding: '16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                                <div style={{ width: '100%', aspectRatio: '1 / 1', maxHeight: '170px', borderRadius: '16px', overflow: 'hidden', marginBottom: '12px', background: 'rgba(243,244,246,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <div style={{ width: '100%', height: 'clamp(110px, 14vw, 160px)', borderRadius: '16px', overflow: 'hidden', marginBottom: '12px', background: 'rgba(243,244,246,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                     {item.image_url ? (
                                         <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                     ) : (
@@ -135,7 +135,7 @@ export default function POSPage() {
                                 <div style={{ textAlign: 'center', marginBottom: 'auto' }}>
                                     <div style={{ fontWeight: 700, fontSize: '15px', lineHeight: 1.3 }}>{item.name}</div>
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: '16px', gap: '8px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: '12px', gap: '8px', flexShrink: 0 }}>
                                     <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                                         <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Precio</span>
                                         <span style={{ fontWeight: 700, color: 'var(--primary-600)', whiteSpace: 'nowrap' }}>{fmt(item.price)}</span>
