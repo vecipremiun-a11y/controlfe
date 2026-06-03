@@ -96,7 +96,7 @@ export const SCHEMA_STATEMENTS = [
     name TEXT NOT NULL,
     phone TEXT,
     avatar_url TEXT,
-    role TEXT DEFAULT 'professional' CHECK(role IN ('owner','admin','receptionist','professional')),
+    role TEXT DEFAULT 'vendedor' CHECK(role IN ('owner','admin','supervisor','recepcionista','bodeguero','vendedor','receptionist','professional')),
     active INTEGER DEFAULT 1,
     last_login TEXT,
     created_at TEXT DEFAULT (datetime('now')),

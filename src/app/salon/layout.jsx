@@ -27,7 +27,9 @@ import {
     User,
     Phone,
     HandCoins,
+    ShieldCheck,
 } from 'lucide-react';
+import { canAccess, firstAllowedRoute } from '@/lib/permissions';
 
 const salonMenuItems = [
     { section: 'MENÚ' },
@@ -44,6 +46,7 @@ const salonMenuItems = [
     { section: 'CONFIGURACIÓN' },
     { label: 'Servicios', icon: Scissors, href: '/salon/servicios' },
     { label: 'Personal', icon: UserCog, href: '/salon/personal' },
+    { label: 'Usuarios', icon: ShieldCheck, href: '/salon/usuarios' },
     { label: 'Reportes', icon: BarChart3, href: '/salon/reportes' },
     { label: 'Marketing', icon: Megaphone, href: '/salon/marketing' },
     { label: 'Configuración', icon: Settings, href: '/salon/configuracion' },
@@ -83,6 +86,14 @@ export default function SalonLayout({ children }) {
             router.push('/login');
         }
     }, [loading, user, router]);
+
+    // Guard por rol: si el usuario no tiene acceso a la ruta actual, lo enviamos
+    // a la primera sección permitida para su rol.
+    useEffect(() => {
+        if (!loading && user && user.type !== 'saas' && !canAccess(user.role, pathname)) {
+            router.replace(firstAllowedRoute(user.role));
+        }
+    }, [loading, user, pathname, router]);
 
     // ===== NOTIFICATION SYSTEM =====
     const [notifications, setNotifications] = useState([]);
@@ -201,6 +212,16 @@ export default function SalonLayout({ children }) {
         return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
     };
 
+    // Menú filtrado por rol: una sección solo se muestra si tiene al menos
+    // un ítem visible debajo (hasta la siguiente sección).
+    const visibleMenu = salonMenuItems.filter((item, i) => {
+        if (!item.section) return canAccess(user.role, item.href);
+        for (let j = i + 1; j < salonMenuItems.length && !salonMenuItems[j].section; j++) {
+            if (canAccess(user.role, salonMenuItems[j].href)) return true;
+        }
+        return false;
+    });
+
     return (
         <div className={`layout ${!sidebarOpen ? 'layout--collapsed' : ''}`}>
             {/* Mobile overlay */}
@@ -235,7 +256,7 @@ export default function SalonLayout({ children }) {
                     </div>
                 </div>
 
-                {salonMenuItems.map((item, i) => {
+                {visibleMenu.map((item, i) => {
                     if (item.section) {
                         return (
                             <div className="sidebar__section" key={i}>
