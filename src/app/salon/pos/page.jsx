@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/store';
-import { Plus, Minus, Trash2, Search, ShoppingCart, CreditCard, Banknote, ArrowLeftRight, DollarSign, X } from 'lucide-react';
+import { Plus, Minus, Trash2, Search, ShoppingCart, CreditCard, Banknote, Landmark, Coins, DollarSign, X } from 'lucide-react';
 
 export default function POSPage() {
     const { user, tenantCurrency } = useStore();
@@ -21,6 +21,11 @@ export default function POSPage() {
     const [tip, setTip] = useState(0);
     const [discount, setDiscount] = useState(0);
     const [showCheckout, setShowCheckout] = useState(false);
+    // Modal de método de pago (incluye pago mixto)
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [mixedMode, setMixedMode] = useState(false);
+    const [mixedAmounts, setMixedAmounts] = useState({ cash: '', card: '', transfer: '' });
+    const [checkingOut, setCheckingOut] = useState(false);
 
     useEffect(() => { loadData(); }, []);
 
@@ -72,7 +77,9 @@ export default function POSPage() {
         ? services.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
         : products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
 
-    async function handleCheckout() {
+    async function handleCheckout(method = paymentMethod) {
+        if (cart.length === 0) return;
+        setCheckingOut(true);
         try {
             const res = await fetch('/api/salon/sales', {
                 method: 'POST',
@@ -81,7 +88,7 @@ export default function POSPage() {
                     client_name: clientName,
                     professional_id: professionalId,
                     items: cart.map(c => ({ ...c, professional_id: professionalId })),
-                    payment_method: paymentMethod,
+                    payment_method: method,
                     tip, discount: discountAmount, subtotal, total,
                 }),
             });
@@ -91,9 +98,16 @@ export default function POSPage() {
                 setTip(0);
                 setDiscount(0);
                 setShowCheckout(false);
+                setShowPaymentModal(false);
+                setMixedMode(false);
+                setMixedAmounts({ cash: '', card: '', transfer: '' });
                 alert('¡Venta completada!');
+            } else {
+                const err = await res.json().catch(() => ({}));
+                alert(err.error || 'No se pudo completar la venta');
             }
-        } catch (e) { console.error(e); }
+        } catch (e) { console.error(e); alert('Error de conexión'); }
+        finally { setCheckingOut(false); }
     }
 
     if (loading) return <div className="loading-page"><div className="spinner spinner--lg" /></div>;
@@ -212,9 +226,8 @@ export default function POSPage() {
                     )}
                 </div>
 
-                {/* Totals */}
-                {cart.length > 0 && (
-                    <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)' }}>
+                {/* Totals (siempre visibles) */}
+                <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
                             <span>Subtotal</span>
                             <span>{fmt(subtotal)}</span>
@@ -232,26 +245,106 @@ export default function POSPage() {
                             <span>{fmt(total)}</span>
                         </div>
 
-                        {/* Payment method */}
-                        <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
-                            {[
-                                { id: 'cash', label: 'Efectivo', icon: Banknote },
-                                { id: 'card', label: 'Tarjeta', icon: CreditCard },
-                                { id: 'transfer', label: 'Transfer.', icon: ArrowLeftRight },
-                            ].map(pm => (
-                                <button key={pm.id} className={`btn btn--sm ${paymentMethod === pm.id ? 'btn--primary' : 'btn--outline'}`}
-                                    onClick={() => setPaymentMethod(pm.id)} style={{ flex: 1, fontSize: '12px', padding: '8px 4px' }}>
-                                    <pm.icon size={14} /> {pm.label}
-                                </button>
-                            ))}
-                        </div>
-
-                        <button className="btn btn--primary btn--block btn--lg" onClick={handleCheckout}>
-                            <DollarSign size={18} /> Cobrar
+                        <button className="btn btn--primary btn--block btn--lg" disabled={checkingOut || cart.length === 0}
+                            onClick={() => { setMixedMode(false); setMixedAmounts({ cash: '', card: '', transfer: '' }); setShowPaymentModal(true); }}>
+                            <DollarSign size={18} /> {checkingOut ? 'Procesando...' : `Cobrar ${fmt(total)}`}
                         </button>
                     </div>
-                )}
             </div>
+
+            {/* Modal de método de pago */}
+            {showPaymentModal && (
+                <div className="pay-modal__overlay" onClick={() => !checkingOut && setShowPaymentModal(false)}>
+                    <div className="pay-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="pay-modal__header">
+                            <h3>Seleccionar método de pago</h3>
+                            <button onClick={() => !checkingOut && setShowPaymentModal(false)} disabled={checkingOut}>
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <p className="pay-modal__subtitle">
+                            Elige cómo quieres procesar el pago por <strong>{fmt(total)}</strong>
+                        </p>
+
+                        {!mixedMode ? (
+                            <div className="pay-modal__grid">
+                                {[
+                                    { key: 'cash', icon: Banknote, label: 'Efectivo', desc: 'Pago en efectivo', color: '#22C55E' },
+                                    { key: 'card', icon: CreditCard, label: 'Tarjeta', desc: 'Débito o crédito', color: '#3B82F6' },
+                                    { key: 'transfer', icon: Landmark, label: 'Transferencia', desc: 'Transferencia bancaria', color: '#A855F7' },
+                                    { key: 'mixed', icon: Coins, label: 'Pago Mixto', desc: 'Combinar métodos', color: '#EC4899' },
+                                ].map(pm => (
+                                    <button
+                                        key={pm.key}
+                                        className="pay-modal__option"
+                                        disabled={checkingOut}
+                                        onClick={() => {
+                                            if (pm.key === 'mixed') { setMixedMode(true); return; }
+                                            setPaymentMethod(pm.key);
+                                            handleCheckout(pm.key);
+                                        }}
+                                    >
+                                        <span className="pay-modal__option-icon" style={{ color: pm.color, background: `${pm.color}1A` }}>
+                                            <pm.icon size={26} />
+                                        </span>
+                                        <span className="pay-modal__option-label">{pm.label}</span>
+                                        <span className="pay-modal__option-desc">{pm.desc}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="pay-modal__mixed">
+                                {[
+                                    { key: 'cash', icon: Banknote, label: 'Efectivo', color: '#22C55E' },
+                                    { key: 'card', icon: CreditCard, label: 'Tarjeta', color: '#3B82F6' },
+                                    { key: 'transfer', icon: Landmark, label: 'Transferencia', color: '#A855F7' },
+                                ].map(pm => (
+                                    <div key={pm.key} className="pay-modal__mixed-row">
+                                        <span className="pay-modal__mixed-icon" style={{ color: pm.color, background: `${pm.color}1A` }}>
+                                            <pm.icon size={18} />
+                                        </span>
+                                        <span className="pay-modal__mixed-label">{pm.label}</span>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            placeholder="0"
+                                            value={mixedAmounts[pm.key]}
+                                            onChange={(e) => setMixedAmounts(prev => ({ ...prev, [pm.key]: e.target.value }))}
+                                        />
+                                    </div>
+                                ))}
+
+                                {(() => {
+                                    const sum = ['cash', 'card', 'transfer'].reduce((a, k) => a + (parseFloat(mixedAmounts[k]) || 0), 0);
+                                    const diff = total - sum;
+                                    const ok = Math.abs(diff) < 0.01;
+                                    return (
+                                        <>
+                                            <div className={`pay-modal__mixed-balance ${ok ? 'pay-modal__mixed-balance--ok' : ''}`}>
+                                                <span>{ok ? 'Cuadra con el total' : diff > 0 ? 'Falta por asignar' : 'Excede el total'}</span>
+                                                <strong>{fmt(Math.abs(diff))}</strong>
+                                            </div>
+                                            <div className="pay-modal__mixed-actions">
+                                                <button className="pay-modal__back-btn" onClick={() => setMixedMode(false)} disabled={checkingOut}>
+                                                    Volver
+                                                </button>
+                                                <button
+                                                    className="pay-modal__confirm-btn"
+                                                    disabled={!ok || checkingOut}
+                                                    onClick={() => { setPaymentMethod('mixed'); handleCheckout('mixed'); }}
+                                                >
+                                                    {checkingOut ? 'Procesando...' : `Cobrar ${fmt(total)}`}
+                                                </button>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

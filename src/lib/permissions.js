@@ -23,24 +23,25 @@ const ROLE_ACCESS = {
     admin: '*',
     supervisor: [
         '/salon/inicio', '/salon/agenda', '/salon/reservas', '/salon/clientes',
-        '/salon/pos', '/salon/barbershop', '/salon/caja', '/salon/pagos-personal',
+        '/salon/pos', '/salon/historial', '/salon/barbershop', '/salon/caja',
+        '/salon/arriendo', '/salon/pagos-personal',
         '/salon/productos', '/salon/servicios', '/salon/personal', '/salon/reportes',
         '/salon/marketing',
     ],
     recepcionista: [
         '/salon/inicio', '/salon/agenda', '/salon/reservas', '/salon/clientes',
-        '/salon/pos', '/salon/caja',
+        '/salon/pos', '/salon/historial', '/salon/caja',
     ],
     bodeguero: [
         '/salon/inicio', '/salon/productos',
     ],
     vendedor: [
-        '/salon/inicio', '/salon/pos', '/salon/caja', '/salon/clientes',
+        '/salon/inicio', '/salon/pos', '/salon/historial', '/salon/caja', '/salon/clientes',
     ],
     // Compatibilidad con roles antiguos:
     receptionist: [
         '/salon/inicio', '/salon/agenda', '/salon/reservas', '/salon/clientes',
-        '/salon/pos', '/salon/caja',
+        '/salon/pos', '/salon/historial', '/salon/caja',
     ],
     professional: [
         '/salon/inicio', '/salon/agenda',

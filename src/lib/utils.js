@@ -6,6 +6,57 @@ export function generateId() {
     return crypto.randomUUID();
 }
 
+// ============================================
+// Timezone helpers (app runs in Chile time)
+// created_at/last_visit are stored in UTC by SQLite's datetime('now'),
+// so any "today/range" filter must be computed in the app timezone and
+// UTC columns must be converted with the offset returned here.
+// ============================================
+export const APP_TIMEZONE = 'America/Santiago';
+
+// Offset string like '-04:00' for a timezone at a given instant (handles DST)
+export function tzOffset(timeZone = APP_TIMEZONE, date = new Date()) {
+    const name = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
+        .formatToParts(date)
+        .find((p) => p.type === 'timeZoneName')?.value || 'GMT+00:00';
+    const m = name.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);
+    if (!m) return '+00:00';
+    return `${m[1]}${m[2].padStart(2, '0')}:${m[3] || '00'}`;
+}
+
+// Local date 'YYYY-MM-DD' in the given timezone for a given instant
+export function tzToday(timeZone = APP_TIMEZONE, date = new Date()) {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(date);
+}
+
+// Resolve a report range ('today'|'week'|'month'|'year') into the local
+// start date and the timezone offset to convert UTC columns in SQL.
+export function reportDateFilter(range, timeZone = APP_TIMEZONE) {
+    const today = tzToday(timeZone);
+    const [y, mo, d] = today.split('-').map(Number);
+    const base = new Date(Date.UTC(y, mo - 1, d));
+    let dateFilter;
+    switch (range) {
+        case 'today':
+            dateFilter = today;
+            break;
+        case 'week': {
+            const w = new Date(base);
+            w.setUTCDate(w.getUTCDate() - 7);
+            dateFilter = w.toISOString().split('T')[0];
+            break;
+        }
+        case 'year':
+            dateFilter = `${y}-01-01`;
+            break;
+        default:
+            dateFilter = `${today.slice(0, 7)}-01`;
+    }
+    return { dateFilter, offset: tzOffset(timeZone), today };
+}
+
 // Generate a URL-friendly slug
 export function slugify(text) {
     return text

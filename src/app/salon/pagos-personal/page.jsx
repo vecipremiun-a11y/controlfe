@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/lib/store';
@@ -953,6 +953,7 @@ export default function PagosPersonalPage() {
                     </div>
                 </div>
             )}
+
         </div>
     );
 }

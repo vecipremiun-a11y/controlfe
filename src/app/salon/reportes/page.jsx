@@ -6,16 +6,24 @@ import { BarChart3, TrendingUp, Users, Calendar, DollarSign, Scissors, Package }
 
 export default function ReportesPage() {
     const { user, tenantCurrency } = useStore();
+    const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD en hora local
     const [dateRange, setDateRange] = useState('month');
+    const [customFrom, setCustomFrom] = useState(today);
+    const [customTo, setCustomTo] = useState(today);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => { loadReport(); }, [dateRange]);
+    useEffect(() => { loadReport(); }, [dateRange, customFrom, customTo]);
 
     async function loadReport() {
+        // En modo personalizado necesitamos ambas fechas
+        if (dateRange === 'custom' && (!customFrom || !customTo)) return;
         setLoading(true);
         try {
-            const res = await fetch(`/api/salon/reports?range=${dateRange}`);
+            const url = dateRange === 'custom'
+                ? `/api/salon/reports?from=${customFrom}&to=${customTo}`
+                : `/api/salon/reports?range=${dateRange}`;
+            const res = await fetch(url);
             if (res.ok) { const d = await res.json(); setData(d); }
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
@@ -23,18 +31,31 @@ export default function ReportesPage() {
 
     const fmt = (v) => new Intl.NumberFormat('es', { style: 'currency', currency: tenantCurrency || 'USD', minimumFractionDigits: 0 }).format(v || 0);
 
-    if (loading) return <div className="loading-page"><div className="spinner spinner--lg" /></div>;
-
     return (
         <div>
             <div className="page-header">
                 <div><h1 className="page-header__title">Reportes</h1><p className="page-header__subtitle">Análisis de rendimiento de tu salón</p></div>
                 <div className="chips">
-                    {[{ id: 'today', label: 'Hoy' }, { id: 'week', label: 'Semana' }, { id: 'month', label: 'Mes' }, { id: 'year', label: 'Año' }].map(r => (
+                    {[{ id: 'today', label: 'Hoy' }, { id: 'week', label: 'Semana' }, { id: 'month', label: 'Mes' }, { id: 'year', label: 'Año' }, { id: 'custom', label: 'Personalizado' }].map(r => (
                         <button key={r.id} className={`chip ${dateRange === r.id ? 'chip--active' : ''}`} onClick={() => setDateRange(r.id)}>{r.label}</button>
                     ))}
                 </div>
             </div>
+
+            {dateRange === 'custom' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '20px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: 'var(--text-muted)' }}>
+                        Desde
+                        <input type="date" className="input" value={customFrom} max={customTo} onChange={e => setCustomFrom(e.target.value)} style={{ width: 'auto' }} />
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: 'var(--text-muted)' }}>
+                        Hasta
+                        <input type="date" className="input" value={customTo} min={customFrom} onChange={e => setCustomTo(e.target.value)} style={{ width: 'auto' }} />
+                    </label>
+                </div>
+            )}
+
+            {loading ? <div className="loading-page"><div className="spinner spinner--lg" /></div> : <>
 
             <div className="stats-grid">
                 <div className="stat-card">
@@ -127,6 +148,8 @@ export default function ReportesPage() {
                     </div>
                 </div>
             </div>
+
+            </>}
         </div>
     );
 }

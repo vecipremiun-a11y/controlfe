@@ -194,6 +194,22 @@ export const SCHEMA_STATEMENTS = [
     FOREIGN KEY (service_id) REFERENCES services(id)
   )`,
 
+  // Control de arriendo de sillón: registro de pagos por día (abonos
+  // parciales). El monto del arriendo se toma de la ficha del profesional
+  // en Personal (payment_mode='rent', rent_amount, rent_frequency).
+  `CREATE TABLE IF NOT EXISTS chair_rent_days (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    professional_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    amount_due REAL NOT NULL DEFAULT 0,
+    amount_paid REAL NOT NULL DEFAULT 0,
+    payment_method TEXT,
+    notes TEXT,
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(professional_id, date)
+  )`,
+
   // Rent payments tracking for "arriendo" mode
   `CREATE TABLE IF NOT EXISTS professional_rent_payments (
     id TEXT PRIMARY KEY,

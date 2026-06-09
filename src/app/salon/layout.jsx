@@ -27,6 +27,7 @@ import {
     Phone,
     HandCoins,
     ShieldCheck,
+    History,
 } from 'lucide-react';
 import { canAccess, firstAllowedRoute } from '@/lib/permissions';
 
@@ -38,8 +39,10 @@ const salonMenuItems = [
     { label: 'Clientes', icon: Users, href: '/salon/clientes' },
     { section: 'OPERACIONES' },
     { label: 'Punto de Venta', icon: ShoppingCart, href: '/salon/pos' },
+    { label: 'Historial', icon: History, href: '/salon/historial' },
     { label: 'Barbershop', icon: Armchair, href: '/salon/barbershop' },
     { label: 'Caja', icon: Wallet, href: '/salon/caja' },
+    { label: 'Arriendo Sillón', icon: Armchair, href: '/salon/arriendo' },
     { label: 'Pagos Personal', icon: HandCoins, href: '/salon/pagos-personal' },
     { label: 'Productos', icon: Package, href: '/salon/productos' },
     { section: 'CONFIGURACIÓN' },
