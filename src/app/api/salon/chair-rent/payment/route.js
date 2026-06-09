@@ -23,7 +23,7 @@ export async function POST(request) {
         if (!user?.tenantId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
         await ensureChairRentTables();
 
-        const { professional_id, date, amount, payment_method, notes, set } = await request.json();
+        const { professional_id, date, amount, payment_method, notes, set, status } = await request.json();
         if (!professional_id || !date) return NextResponse.json({ error: 'Faltan datos' }, { status: 400 });
         const value = Number(amount) || 0;
 
@@ -50,6 +50,32 @@ export async function POST(request) {
             [professional_id, date]
         );
 
+        // ── Marcar el día como "no se cobra" (descanso / no vino) o revertir ──
+        // 'off'    = descanso del barbero, 'absent' = no vino a trabajar,
+        // 'normal' = vuelve a cobrarse el arriendo de ese día.
+        if (status === 'off' || status === 'absent' || status === 'normal') {
+            // Cambiar un día que ya tiene abonos solo lo puede hacer un admin.
+            if ((existing?.amount_paid || 0) > 0 && !isAdmin) {
+                return NextResponse.json({ error: 'Este día tiene abonos. Solo un administrador puede cambiarlo.' }, { status: 403 });
+            }
+            const exempt = status !== 'normal';
+            const newDue = exempt ? 0 : daily;   // exento = no se cobra
+            const newPaid = 0;                    // marcar/revertir limpia abonos
+            if (existing) {
+                await execute(
+                    `UPDATE chair_rent_days SET amount_due = ?, amount_paid = ?, status = ?, payment_method = NULL, notes = ?, updated_at = datetime('now') WHERE id = ?`,
+                    [newDue, newPaid, status, notes || null, existing.id]
+                );
+            } else {
+                await execute(
+                    `INSERT INTO chair_rent_days (id, tenant_id, professional_id, date, amount_due, amount_paid, payment_method, notes, status)
+                     VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+                    [generateId(), user.tenantId, professional_id, date, newDue, newPaid, notes || null, status]
+                );
+            }
+            return NextResponse.json({ ok: true, date, status, amount_due: newDue, amount_paid: newPaid });
+        }
+
         if (existing) {
             const due = existing.amount_due || daily;
             // Si el día ya está pagado completo, no se permite abonar de nuevo
@@ -59,7 +85,7 @@ export async function POST(request) {
             }
             const newPaid = set ? Math.max(0, value) : Math.max(0, (existing.amount_paid || 0) + value);
             await execute(
-                `UPDATE chair_rent_days SET amount_paid = ?, amount_due = ?, payment_method = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`,
+                `UPDATE chair_rent_days SET amount_paid = ?, amount_due = ?, status = 'normal', payment_method = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`,
                 [newPaid, daily, payment_method || null, notes || null, existing.id]
             );
             return NextResponse.json({ ok: true, date, amount_due: daily, amount_paid: newPaid });

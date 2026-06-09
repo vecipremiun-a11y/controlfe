@@ -13,14 +13,27 @@ export const CHAIR_RENT_TABLES = [
         amount_paid REAL NOT NULL DEFAULT 0,
         payment_method TEXT,
         notes TEXT,
+        status TEXT NOT NULL DEFAULT 'normal',
         updated_at TEXT DEFAULT (datetime('now')),
         UNIQUE(professional_id, date)
     )`,
+];
+
+// Migraciones idempotentes para tablas que ya existían sin columnas nuevas.
+// Cada ALTER se ejecuta dentro de try/catch: si la columna ya existe, SQLite
+// lanza un error que ignoramos (misma convención que los scripts migrate_*.mjs).
+const CHAIR_RENT_MIGRATIONS = [
+    // status: 'normal' | 'off' (descanso del barbero) | 'absent' (no vino a
+    // trabajar). Los días 'off'/'absent' no se cobran (amount_due = 0).
+    `ALTER TABLE chair_rent_days ADD COLUMN status TEXT NOT NULL DEFAULT 'normal'`,
 ];
 
 let ready = false;
 export async function ensureChairRentTables() {
     if (ready) return;
     for (const sql of CHAIR_RENT_TABLES) await execute(sql);
+    for (const sql of CHAIR_RENT_MIGRATIONS) {
+        try { await execute(sql); } catch { /* la columna ya existe */ }
+    }
     ready = true;
 }

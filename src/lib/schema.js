@@ -206,6 +206,7 @@ export const SCHEMA_STATEMENTS = [
     amount_paid REAL NOT NULL DEFAULT 0,
     payment_method TEXT,
     notes TEXT,
+    status TEXT NOT NULL DEFAULT 'normal',
     updated_at TEXT DEFAULT (datetime('now')),
     UNIQUE(professional_id, date)
   )`,

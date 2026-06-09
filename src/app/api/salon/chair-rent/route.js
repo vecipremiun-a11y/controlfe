@@ -51,7 +51,7 @@ export async function GET(request) {
         );
 
         const records = await query(
-            `SELECT professional_id, date, amount_due, amount_paid
+            `SELECT professional_id, date, amount_due, amount_paid, status
              FROM chair_rent_days
              WHERE tenant_id = ? AND date BETWEEN ? AND ?`,
             [user.tenantId, monthStart, monthEnd]
@@ -61,21 +61,28 @@ export async function GET(request) {
         for (const r of records) {
             (byProf[r.professional_id] ||= []).push({
                 date: r.date, amount_due: r.amount_due, amount_paid: r.amount_paid,
+                status: r.status || 'normal',
             });
         }
 
         const professionals = profs.map(p => {
             const dailyDue = Math.round((p.rent_amount || 0) / periodDays(p.rent_frequency, daysInMonth));
             const days = byProf[p.id] || [];
+            // Días marcados como "no se cobra" (descanso / no vino) que ya
+            // transcurrieron: se descuentan de los días cobrables del mes.
+            const offElapsed = days.filter(d =>
+                (d.status === 'off' || d.status === 'absent') && Number(d.date.slice(8, 10)) <= elapsed
+            ).length;
+            const chargeableDays = Math.max(0, elapsed - offElapsed);
             const totalPaid = days.reduce((s, d) => s + (d.amount_paid || 0), 0);
-            const totalDue = dailyDue * elapsed;
+            const totalDue = dailyDue * chargeableDays;
             const debt = Math.max(0, totalDue - totalPaid);
             return {
                 id: p.id, name: p.name, color: p.color, avatar_url: p.avatar_url,
                 daily_amount: dailyDue,
                 rent_amount: p.rent_amount, rent_frequency: p.rent_frequency,
                 days,
-                summary: { due_days: elapsed, total_due: totalDue, total_paid: totalPaid, debt },
+                summary: { due_days: chargeableDays, off_days: offElapsed, total_due: totalDue, total_paid: totalPaid, debt },
             };
         });
 

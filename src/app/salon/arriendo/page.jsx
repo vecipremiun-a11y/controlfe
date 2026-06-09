@@ -5,6 +5,7 @@ import { useStore } from '@/lib/store';
 import {
     Armchair, ChevronLeft, ChevronRight, X, Check,
     Banknote, CreditCard, ArrowLeftRight,
+    Coffee, UserX, RotateCcw,
 } from 'lucide-react';
 
 const FREQ_LABEL = { daily: 'día', weekly: 'semana', biweekly: 'quincena', monthly: 'mes' };
@@ -49,15 +50,18 @@ export default function ArriendoPage() {
         const dateStr = `${rentData.month}-${String(day).padStart(2, '0')}`;
         const daily = prof.daily_amount || 0;
         const rec = (prof.days || []).find(d => d.date === dateStr);
+        const recStatus = rec?.status || 'normal';
+        const exempt = recStatus === 'off' || recStatus === 'absent'; // no se cobra
         const paid = rec?.amount_paid || 0;
-        const due = rec?.amount_due ?? daily;
+        const due = exempt ? 0 : (rec?.amount_due ?? daily);
         let status = 'none';
-        if (daily <= 0) status = 'none';
+        if (exempt) status = recStatus;            // 'off' (descanso) | 'absent' (no vino)
+        else if (daily <= 0) status = 'none';
         else if (dateStr > rentData.today) status = 'future';
         else if (due > 0 && paid >= due) status = 'paid';
         else if (paid > 0) status = 'partial';
         else status = 'debt';
-        return { dateStr, daily, paid, due, remaining: Math.max(0, due - paid), status };
+        return { dateStr, daily, paid, due, remaining: Math.max(0, due - paid), status, recStatus, exempt };
     };
 
     const openPay = (prof, day) => {
@@ -94,6 +98,41 @@ export default function ArriendoPage() {
             });
             if (res.ok) {
                 const msg = mode === 'void' ? 'Pago anulado' : mode === 'set' ? 'Pago corregido' : `Abono de ${fmt(amount)} registrado`;
+                addToast?.({ type: 'success', message: msg });
+                setPayModal(null);
+                loadRentData();
+            } else {
+                const err = await res.json();
+                addToast?.({ type: 'error', message: err.error || 'Error' });
+            }
+        } catch (e) { addToast?.({ type: 'error', message: 'Error de conexión' }); }
+        finally { setSubmitting(false); }
+    };
+
+    // Marca el día como descanso ('off') o "no vino" ('absent') —no se cobra—,
+    // o lo revierte a cobro normal ('normal').
+    const submitMark = async (status) => {
+        if (!payModal) return;
+        if (status !== 'normal' && payModal.paid > 0 && !isAdmin) {
+            addToast?.({ type: 'error', message: 'Este día tiene abonos. Solo un administrador puede cambiarlo.' });
+            return;
+        }
+        setSubmitting(true);
+        try {
+            const res = await fetch('/api/salon/chair-rent/payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    professional_id: payModal.prof.id,
+                    date: payModal.dateStr,
+                    status,
+                    notes: status === 'off' ? 'Descanso del barbero' : status === 'absent' ? 'No vino a trabajar' : null,
+                }),
+            });
+            if (res.ok) {
+                const msg = status === 'off' ? 'Día marcado como descanso (no se cobra)'
+                    : status === 'absent' ? 'Día marcado como "no vino" (no se cobra)'
+                        : 'Día reactivado para cobro';
                 addToast?.({ type: 'success', message: msg });
                 setPayModal(null);
                 loadRentData();
@@ -153,6 +192,20 @@ export default function ArriendoPage() {
                 </div>
             ) : (
                 <div className="pagos-personal__monthly">
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '0 4px 14px', fontSize: '11px', color: '#6B7280' }}>
+                        {[
+                            ['#D1FAE5', '#059669', 'Pagado'],
+                            ['#FEF3C7', '#D97706', 'Abono parcial'],
+                            ['#FEE2E2', '#EF4444', 'Deuda'],
+                            ['#E0E7FF', '#4338CA', 'Descanso'],
+                            ['#E2E8F0', '#475569', 'No vino'],
+                            ['#F3F4F6', '#9CA3AF', 'Futuro / sin cobro'],
+                        ].map(([bg, c, l]) => (
+                            <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                                <span style={{ width: '12px', height: '12px', borderRadius: '3px', background: bg, border: `1px solid ${c}55` }} />{l}
+                            </span>
+                        ))}
+                    </div>
                     <div className="pagos-personal__prof-cards">
                         {(rentData?.professionals || []).map(prof => {
                             const daily = prof.daily_amount || 0;
@@ -208,18 +261,22 @@ export default function ArriendoPage() {
                                                     paid: { bg: '#D1FAE5', color: '#059669' },
                                                     partial: { bg: '#FEF3C7', color: '#D97706' },
                                                     debt: { bg: '#FEE2E2', color: '#EF4444' },
+                                                    off: { bg: '#E0E7FF', color: '#4338CA' },
+                                                    absent: { bg: '#E2E8F0', color: '#475569' },
                                                     future: { bg: '#F3F4F6', color: '#9CA3AF' },
                                                     none: { bg: '#F3F4F6', color: '#9CA3AF' },
                                                 }[st.status];
                                                 const title = st.status === 'paid' ? `Pagado: ${fmt(st.paid)}`
                                                     : st.status === 'partial' ? `Abonado ${fmt(st.paid)} — falta ${fmt(st.remaining)}`
                                                         : st.status === 'debt' ? `Deuda: ${fmt(st.due)}`
-                                                            : st.status === 'future' ? 'Día futuro' : 'Sin arriendo';
+                                                            : st.status === 'off' ? 'Descanso — no se cobra'
+                                                                : st.status === 'absent' ? 'No vino a trabajar — no se cobra'
+                                                                    : st.status === 'future' ? 'Día futuro' : 'Sin arriendo';
                                                 return (
                                                     <div
                                                         key={day}
                                                         className="pagos-personal__calendar-day"
-                                                        style={{ background: palette.bg, color: palette.color, cursor: 'pointer', fontWeight: st.status === 'debt' ? 700 : 600 }}
+                                                        style={{ background: palette.bg, color: palette.color, cursor: 'pointer', fontWeight: st.status === 'debt' ? 700 : 600, textDecoration: st.exempt ? 'line-through' : 'none' }}
                                                         title={title}
                                                         onClick={() => openPay(prof, day)}
                                                     >
@@ -271,7 +328,20 @@ export default function ArriendoPage() {
                                 </div>
                             </div>
 
-                            {payModal.fullyPaid && !isAdmin ? (
+                            {payModal.exempt ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', padding: '8px 4px' }}>
+                                    <div style={{ padding: '14px', borderRadius: '10px', width: '100%', textAlign: 'center', fontSize: '14px', fontWeight: 600, background: payModal.recStatus === 'off' ? '#E0E7FF' : '#E2E8F0', color: payModal.recStatus === 'off' ? '#4338CA' : '#475569' }}>
+                                        {payModal.recStatus === 'off'
+                                            ? 'Día marcado como descanso del barbero — este día no se cobra.'
+                                            : 'Marcado como “no vino a trabajar” — este día no se cobra.'}
+                                    </div>
+                                    {(payModal.paid === 0 || isAdmin) && (
+                                        <button className="btn btn--ghost" onClick={() => submitMark('normal')} disabled={submitting} style={{ color: '#059669' }}>
+                                            {submitting ? <div className="spinner spinner--sm" /> : <><RotateCcw size={16} /> Volver a cobrar este día</>}
+                                        </button>
+                                    )}
+                                </div>
+                            ) : payModal.fullyPaid && !isAdmin ? (
                                 <div style={{ padding: '14px', borderRadius: '10px', background: 'rgba(16,185,129,0.08)', color: '#059669', fontSize: '14px', fontWeight: 600, textAlign: 'center' }}>
                                     Este día ya está pagado completo.
                                 </div>
@@ -311,19 +381,35 @@ export default function ArriendoPage() {
                                             placeholder="Ej: abono parcial, paga resto mañana..."
                                             style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '1px solid #D1D5DB', fontSize: '13px' }} />
                                     </div>
+
+                                    {(payModal.paid === 0 || isAdmin) && (
+                                        <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: '12px' }}>
+                                            <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151', display: 'block', marginBottom: '6px' }}>¿No se cobra este día?</label>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <button onClick={() => submitMark('absent')} disabled={submitting}
+                                                    style={{ flex: 1, padding: '10px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', border: '1px solid #D1D5DB', background: '#fff', color: '#475569' }}>
+                                                    <UserX size={15} /> No vino
+                                                </button>
+                                                <button onClick={() => submitMark('off')} disabled={submitting}
+                                                    style={{ flex: 1, padding: '10px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', border: '1px solid #C7D2FE', background: '#fff', color: '#4338CA' }}>
+                                                    <Coffee size={15} /> Descanso
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>
                         <div className="checkin-modal__footer" style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            {isAdmin && payModal.paid > 0 && (
+                            {!payModal.exempt && isAdmin && payModal.paid > 0 && (
                                 <button className="btn btn--ghost" onClick={() => submitPay('void')} disabled={submitting} style={{ color: '#DC2626', marginRight: 'auto' }}>
                                     Anular pago
                                 </button>
                             )}
                             <button className="btn btn--ghost" onClick={() => setPayModal(null)} disabled={submitting}>
-                                {payModal.fullyPaid && !isAdmin ? 'Cerrar' : 'Cancelar'}
+                                {(payModal.exempt || (payModal.fullyPaid && !isAdmin)) ? 'Cerrar' : 'Cancelar'}
                             </button>
-                            {!(payModal.fullyPaid && !isAdmin) && (
+                            {!payModal.exempt && !(payModal.fullyPaid && !isAdmin) && (
                                 <button className="btn btn--primary" onClick={() => submitPay(payModal.fullyPaid && isAdmin ? 'set' : 'add')} disabled={submitting || !payAmount || parseFloat(payAmount) <= 0} style={{ background: '#059669' }}>
                                     {submitting ? <div className="spinner spinner--sm" /> : <><Check size={16} /> {payModal.fullyPaid && isAdmin ? 'Guardar cambios' : 'Registrar abono'}</>}
                                 </button>
