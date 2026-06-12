@@ -28,7 +28,7 @@ export default function MarketingPage() {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="rgrid rgrid--2">
                 <div className="card">
                     <div className="card__header"><h3 className="card__title">📝 Plantillas WhatsApp</h3></div>
                     <div className="card__body">

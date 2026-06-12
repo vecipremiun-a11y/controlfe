@@ -25,7 +25,12 @@ export default function POSPage() {
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [mixedMode, setMixedMode] = useState(false);
     const [mixedAmounts, setMixedAmounts] = useState({ cash: '', card: '', transfer: '' });
+    // Sub-vista de efectivo: capturar monto recibido para calcular el vuelto.
+    const [cashMode, setCashMode] = useState(false);
+    const [cashReceived, setCashReceived] = useState('');
     const [checkingOut, setCheckingOut] = useState(false);
+    // En móvil el carrito se muestra como panel inferior deslizante
+    const [showCartMobile, setShowCartMobile] = useState(false);
 
     useEffect(() => { loadData(); }, []);
 
@@ -77,7 +82,7 @@ export default function POSPage() {
         ? services.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
         : products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
 
-    async function handleCheckout(method = paymentMethod) {
+    async function handleCheckout(method = paymentMethod, details = null) {
         if (cart.length === 0) return;
         setCheckingOut(true);
         try {
@@ -89,6 +94,7 @@ export default function POSPage() {
                     professional_id: professionalId,
                     items: cart.map(c => ({ ...c, professional_id: professionalId })),
                     payment_method: method,
+                    payment_details: details,
                     tip, discount: discountAmount, subtotal, total,
                 }),
             });
@@ -101,9 +107,18 @@ export default function POSPage() {
                 setShowPaymentModal(false);
                 setMixedMode(false);
                 setMixedAmounts({ cash: '', card: '', transfer: '' });
+                setCashMode(false);
+                setCashReceived('');
+                setShowCartMobile(false);
                 alert('¡Venta completada!');
             } else {
                 const err = await res.json().catch(() => ({}));
+                // Sin caja abierta: avisar y recargar para mostrar el bloqueo de caja.
+                if (res.status === 409 && err.code === 'NO_REGISTER') {
+                    alert(err.error || 'Debes abrir una caja antes de vender');
+                    window.location.reload();
+                    return;
+                }
                 alert(err.error || 'No se pudo completar la venta');
             }
         } catch (e) { console.error(e); alert('Error de conexión'); }
@@ -113,9 +128,9 @@ export default function POSPage() {
     if (loading) return <div className="loading-page"><div className="spinner spinner--lg" /></div>;
 
     return (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', height: 'calc(100vh - 64px)', width: 'calc(100vw - var(--sidebar-width))', margin: '-28px', overflow: 'hidden', transition: 'width var(--transition-normal)' }}>
+        <div className="pos-layout">
             {/* Left: Items */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px', overflow: 'hidden' }}>
+            <div className="pos-items">
                 <div className="page-header" style={{ marginBottom: 0 }}>
                     <h1 className="page-header__title">Punto de Venta</h1>
                 </div>
@@ -130,7 +145,7 @@ export default function POSPage() {
                     <input className="form-input" placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)} style={{ paddingLeft: '40px' }} />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px', overflow: 'auto', flex: 1, alignContent: 'start' }}>
+                <div className="pos-grid">
                     {filteredItems.map(item => (
                         <div key={item.id} className="card" onClick={() => addToCart(item, tab === 'services' ? 'service' : 'product')}
                             style={{ cursor: 'pointer', transition: 'all 150ms', display: 'flex', flexDirection: 'column' }}
@@ -165,13 +180,21 @@ export default function POSPage() {
                 </div>
             </div>
 
+            {/* Backdrop del carrito en móvil */}
+            {showCartMobile && <div className="pos-cart__backdrop" onClick={() => setShowCartMobile(false)} />}
+
             {/* Right: Cart */}
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderLeft: '1px solid var(--border-color)', background: 'white' }}>
+            <div className={`pos-cart ${showCartMobile ? 'pos-cart--open' : ''}`}>
                 <div className="card__header">
                     <h3 className="card__title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <ShoppingCart size={18} /> Carrito
                     </h3>
-                    <span className="badge badge--purple">{cart.length}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="badge badge--purple">{cart.length}</span>
+                        <button className="pos-cart__close header__icon-btn" onClick={() => setShowCartMobile(false)} aria-label="Cerrar carrito" style={{ width: '32px', height: '32px' }}>
+                            <X size={18} />
+                        </button>
+                    </div>
                 </div>
 
                 <div className="card__body" style={{ flex: 1, overflow: 'auto', padding: '12px 24px' }}>
@@ -246,11 +269,23 @@ export default function POSPage() {
                         </div>
 
                         <button className="btn btn--primary btn--block btn--lg" disabled={checkingOut || cart.length === 0}
-                            onClick={() => { setMixedMode(false); setMixedAmounts({ cash: '', card: '', transfer: '' }); setShowPaymentModal(true); }}>
+                            onClick={() => { setMixedMode(false); setMixedAmounts({ cash: '', card: '', transfer: '' }); setCashMode(false); setCashReceived(''); setShowPaymentModal(true); }}>
                             <DollarSign size={18} /> {checkingOut ? 'Procesando...' : `Cobrar ${fmt(total)}`}
                         </button>
                     </div>
             </div>
+
+            {/* Botón flotante del carrito (solo móvil) */}
+            {!showCartMobile && (
+                <button className="pos-cart-fab" onClick={() => setShowCartMobile(true)}>
+                    <span className="pos-cart-fab__label">
+                        <ShoppingCart size={18} />
+                        Ver carrito
+                        <span className="pos-cart-fab__count">{cart.length}</span>
+                    </span>
+                    <span>{fmt(total)}</span>
+                </button>
+            )}
 
             {/* Modal de método de pago */}
             {showPaymentModal && (
@@ -267,7 +302,40 @@ export default function POSPage() {
                             Elige cómo quieres procesar el pago por <strong>{fmt(total)}</strong>
                         </p>
 
-                        {!mixedMode ? (
+                        {cashMode ? (
+                            <div className="pay-modal__mixed">
+                                <div className="pay-modal__mixed-row">
+                                    <span className="pay-modal__mixed-icon" style={{ color: '#22C55E', background: '#22C55E1A' }}>
+                                        <Banknote size={18} />
+                                    </span>
+                                    <span className="pay-modal__mixed-label">Recibido</span>
+                                    <input type="number" min="0" autoFocus value={cashReceived}
+                                        onChange={(e) => setCashReceived(e.target.value)} placeholder="0" />
+                                </div>
+                                {(() => {
+                                    const received = parseFloat(cashReceived) || 0;
+                                    const change = received - total;
+                                    const enough = received >= total;
+                                    return (
+                                        <>
+                                            <div className={`pay-modal__mixed-balance ${enough ? 'pay-modal__mixed-balance--ok' : ''}`}>
+                                                <span>{enough ? 'Vuelto a entregar' : 'Falta'}</span>
+                                                <strong>{fmt(Math.abs(change))}</strong>
+                                            </div>
+                                            <div className="pay-modal__mixed-actions">
+                                                <button className="pay-modal__back-btn" onClick={() => setCashMode(false)} disabled={checkingOut}>
+                                                    Volver
+                                                </button>
+                                                <button className="pay-modal__confirm-btn" disabled={!enough || checkingOut}
+                                                    onClick={() => handleCheckout('cash', { cash: total, received })}>
+                                                    {checkingOut ? 'Procesando...' : `Cobrar ${fmt(total)}`}
+                                                </button>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        ) : !mixedMode ? (
                             <div className="pay-modal__grid">
                                 {[
                                     { key: 'cash', icon: Banknote, label: 'Efectivo', desc: 'Pago en efectivo', color: '#22C55E' },
@@ -281,6 +349,7 @@ export default function POSPage() {
                                         disabled={checkingOut}
                                         onClick={() => {
                                             if (pm.key === 'mixed') { setMixedMode(true); return; }
+                                            if (pm.key === 'cash') { setPaymentMethod('cash'); setCashReceived(String(Math.round(total))); setCashMode(true); return; }
                                             setPaymentMethod(pm.key);
                                             handleCheckout(pm.key);
                                         }}
@@ -332,7 +401,7 @@ export default function POSPage() {
                                                 <button
                                                     className="pay-modal__confirm-btn"
                                                     disabled={!ok || checkingOut}
-                                                    onClick={() => { setPaymentMethod('mixed'); handleCheckout('mixed'); }}
+                                                    onClick={() => { setPaymentMethod('mixed'); handleCheckout('mixed', { cash: parseFloat(mixedAmounts.cash) || 0, card: parseFloat(mixedAmounts.card) || 0, transfer: parseFloat(mixedAmounts.transfer) || 0 }); }}
                                                 >
                                                     {checkingOut ? 'Procesando...' : `Cobrar ${fmt(total)}`}
                                                 </button>

@@ -2,14 +2,24 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { query, execute } from '@/lib/db';
 import { generateId } from '@/lib/utils';
+import { ensureCashTables, getOpenRegister, addCashMovement } from '@/lib/cashRegister';
 
 export async function POST(request) {
     try {
         const user = await getCurrentUser(request);
         if (!user?.tenantId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
+        // Toda venta debe registrarse en una caja abierta del usuario.
+        await ensureCashTables();
+        const register = await getOpenRegister(user.tenantId, user.id);
+        if (!register) {
+            return NextResponse.json({ error: 'Debes abrir una caja antes de registrar ventas', code: 'NO_REGISTER' }, { status: 409 });
+        }
+
         const body = await request.json();
         const saleId = generateId();
+        const method = body.payment_method || 'cash';
+        const details = body.payment_details || {};
 
         // Find or create client
         let clientId = null;
@@ -21,11 +31,24 @@ export async function POST(request) {
             clientId = existing[0]?.id || null;
         }
 
-        // Create sale
+        // Create sale (linked to the open register)
         await execute(
-            `INSERT INTO sales (id, tenant_id, branch_id, client_id, user_id, subtotal, discount, tip, total, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [saleId, user.tenantId, user.branchId || null, clientId, user.id, body.subtotal, body.discount || 0, body.tip || 0, body.total, body.payment_method || 'cash']
+            `INSERT INTO sales (id, tenant_id, branch_id, client_id, user_id, register_id, subtotal, discount, tip, total, payment_method, payment_details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [saleId, user.tenantId, user.branchId || null, clientId, user.id, register.id, body.subtotal, body.discount || 0, body.tip || 0, body.total, method, JSON.stringify(details)]
         );
+
+        // Efectivo que entra a la caja: total si pago en efectivo, o la porción
+        // en efectivo si es pago mixto. Tarjeta/transferencia no mueven efectivo.
+        const cashPortion = method === 'cash' ? Number(body.total) || 0
+            : method === 'mixed' ? Number(details.cash) || 0 : 0;
+        if (cashPortion > 0) {
+            await addCashMovement({
+                registerId: register.id, type: 'income', amount: cashPortion,
+                description: `Venta${body.client_name ? ' · ' + body.client_name : ''}`,
+                paymentMethod: 'cash', referenceType: 'sale', referenceId: saleId,
+                createdBy: user.id,
+            });
+        }
 
         // Create sale items and update stock
         for (const item of body.items) {

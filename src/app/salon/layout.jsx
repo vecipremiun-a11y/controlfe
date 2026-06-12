@@ -28,8 +28,17 @@ import {
     HandCoins,
     ShieldCheck,
     History,
+    TrendingUp,
 } from 'lucide-react';
 import { canAccess, firstAllowedRoute } from '@/lib/permissions';
+import CashGate from '@/components/CashGate';
+
+// Rutas del menú OPERACIONES que requieren una caja abierta para usarse.
+// (Se excluye /salon/caja, que es justamente donde se abre/cierra la caja.)
+const CASH_GATED = [
+    '/salon/pos', '/salon/historial', '/salon/barbershop',
+    '/salon/arriendo', '/salon/pagos-personal', '/salon/productos',
+];
 
 const salonMenuItems = [
     { section: 'MENÚ' },
@@ -50,6 +59,7 @@ const salonMenuItems = [
     { label: 'Personal', icon: UserCog, href: '/salon/personal' },
     { label: 'Usuarios', icon: ShieldCheck, href: '/salon/usuarios' },
     { label: 'Reportes', icon: BarChart3, href: '/salon/reportes' },
+    { label: 'Utilidad', icon: TrendingUp, href: '/salon/utilidad' },
     { label: 'Marketing', icon: Megaphone, href: '/salon/marketing' },
     { label: 'Configuración', icon: Settings, href: '/salon/configuracion' },
 ];
@@ -342,7 +352,7 @@ export default function SalonLayout({ children }) {
 
                             {/* Notifications dropdown */}
                             {showNotifications && (
-                                <div style={{
+                                <div className="notif-dropdown" style={{
                                     position: 'absolute', top: 'calc(100% + 8px)', right: 0,
                                     width: '380px', maxHeight: '480px',
                                     background: 'white', borderRadius: '16px',
@@ -478,7 +488,9 @@ export default function SalonLayout({ children }) {
                 </header>
 
                 <main className="layout__content">
-                    {children}
+                    {CASH_GATED.some(r => pathname.startsWith(r))
+                        ? <CashGate>{children}</CashGate>
+                        : children}
                 </main>
             </div>
 

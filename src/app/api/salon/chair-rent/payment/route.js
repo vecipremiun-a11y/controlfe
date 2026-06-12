@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { queryOne, execute } from '@/lib/db';
 import { ensureChairRentTables } from '@/lib/chairRent';
+import { ensureCashTables, getOpenRegister, addCashMovement } from '@/lib/cashRegister';
 import { generateId } from '@/lib/utils';
 
 function periodDays(freq, daysInMonth) {
@@ -34,7 +35,7 @@ export async function POST(request) {
         }
 
         const prof = await queryOne(
-            `SELECT id, COALESCE(rent_amount, 0) AS rent_amount, COALESCE(rent_frequency, 'monthly') AS rent_frequency, payment_mode
+            `SELECT id, name, COALESCE(rent_amount, 0) AS rent_amount, COALESCE(rent_frequency, 'monthly') AS rent_frequency, payment_mode
              FROM professionals WHERE id = ? AND tenant_id = ?`,
             [professional_id, user.tenantId]
         );
@@ -76,6 +77,28 @@ export async function POST(request) {
             return NextResponse.json({ ok: true, date, status, amount_due: newDue, amount_paid: newPaid });
         }
 
+        // Cobro de arriendo (abono normal, no corrección admin): exige caja abierta.
+        let register = null;
+        if (!set && value > 0) {
+            await ensureCashTables();
+            register = await getOpenRegister(user.tenantId, user.id);
+            if (!register) {
+                return NextResponse.json({ error: 'Debes abrir una caja antes de cobrar el arriendo', code: 'NO_REGISTER' }, { status: 409 });
+            }
+        }
+
+        // Registra el efectivo cobrado en la caja del usuario.
+        const recordCash = async (refId) => {
+            if (register && payment_method === 'cash' && value > 0) {
+                await addCashMovement({
+                    registerId: register.id, type: 'income', amount: value,
+                    description: `Arriendo silla · ${prof.name || ''}`.trim(),
+                    paymentMethod: 'cash', referenceType: 'rent', referenceId: refId,
+                    createdBy: user.id,
+                });
+            }
+        };
+
         if (existing) {
             const due = existing.amount_due || daily;
             // Si el día ya está pagado completo, no se permite abonar de nuevo
@@ -88,15 +111,18 @@ export async function POST(request) {
                 `UPDATE chair_rent_days SET amount_paid = ?, amount_due = ?, status = 'normal', payment_method = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`,
                 [newPaid, daily, payment_method || null, notes || null, existing.id]
             );
+            await recordCash(existing.id);
             return NextResponse.json({ ok: true, date, amount_due: daily, amount_paid: newPaid });
         }
 
         const paid = Math.max(0, value);
+        const newId = generateId();
         await execute(
             `INSERT INTO chair_rent_days (id, tenant_id, professional_id, date, amount_due, amount_paid, payment_method, notes)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [generateId(), user.tenantId, professional_id, date, daily, paid, payment_method || null, notes || null]
+            [newId, user.tenantId, professional_id, date, daily, paid, payment_method || null, notes || null]
         );
+        await recordCash(newId);
         return NextResponse.json({ ok: true, date, amount_due: daily, amount_paid: paid });
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });

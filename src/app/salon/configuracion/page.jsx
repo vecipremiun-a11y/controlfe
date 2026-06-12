@@ -176,7 +176,7 @@ export default function ConfiguracionPage() {
                 <div><h1 className="page-header__title">Configuración</h1><p className="page-header__subtitle">Personaliza tu salón</p></div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr', gap: '20px' }}>
+            <div className="rgrid rgrid--side">
                 <div className="card" style={{ height: 'fit-content', position: 'sticky', top: '20px' }}>
                     <div className="card__body" style={{ padding: '8px' }}>
                         {SECTIONS.map((item) => (

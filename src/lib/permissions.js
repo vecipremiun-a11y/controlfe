@@ -26,7 +26,7 @@ const ROLE_ACCESS = {
         '/salon/pos', '/salon/historial', '/salon/barbershop', '/salon/caja',
         '/salon/arriendo', '/salon/pagos-personal',
         '/salon/productos', '/salon/servicios', '/salon/personal', '/salon/reportes',
-        '/salon/marketing',
+        '/salon/utilidad', '/salon/marketing',
     ],
     recepcionista: [
         '/salon/inicio', '/salon/agenda', '/salon/reservas', '/salon/clientes',

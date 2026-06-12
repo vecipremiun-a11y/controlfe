@@ -160,7 +160,7 @@ export default function ReservasOnlinePage() {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="rgrid rgrid--2">
                 {/* Config card */}
                 <div className="card">
                     <div className="card__header"><h3 className="card__title">⚙️ Configuración de Reservas</h3></div>

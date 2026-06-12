@@ -201,7 +201,7 @@ export default function HistorialPage() {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: '20px', alignItems: 'start' }}>
+            <div className="rgrid rgrid--list-detail">
                 {/* Lista */}
                 <div className="card" style={{ maxHeight: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
                     <div className="card__header"><h3 className="card__title">Resultados ({sales.length})</h3></div>
@@ -287,7 +287,7 @@ export default function HistorialPage() {
                                 </table>
 
                                 {/* Totales + Pago */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '20px', marginTop: '20px', alignItems: 'start' }}>
+                                <div className="rgrid rgrid--totals" style={{ marginTop: '20px' }}>
                                     <div />
                                     <div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '14px' }}><span style={{ color: 'var(--text-muted)' }}>Subtotal</span><span>{fmt(detail.subtotal)}</span></div>

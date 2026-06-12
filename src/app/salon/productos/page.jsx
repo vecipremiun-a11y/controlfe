@@ -147,7 +147,7 @@ export default function ProductosPage() {
                                     <div className="form-group"><label className="form-label form-label--required">Nombre</label><input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></div>
                                     <div className="form-group"><label className="form-label">SKU</label><input className="form-input" value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} /></div>
                                 </div>
-                                <div className="form-row--3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                                <div className="form-row form-row--3">
                                     <div className="form-group"><label className="form-label">Costo</label><input type="number" className="form-input" value={form.cost} onChange={e => setForm({ ...form, cost: parseFloat(e.target.value) || 0 })} min="0" step="0.01" /></div>
                                     <div className="form-group"><label className="form-label form-label--required">Precio</label><input type="number" className="form-input" value={form.price} onChange={e => setForm({ ...form, price: parseFloat(e.target.value) || 0 })} required min="0" step="0.01" /></div>
                                     <div className="form-group"><label className="form-label">Existencias</label><input type="number" className="form-input" value={form.stock} onChange={e => setForm({ ...form, stock: parseInt(e.target.value) || 0 })} min="0" /></div>

@@ -147,7 +147,7 @@ export default function SalonDashboard() {
             </div>
 
             {/* Two column layout */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '20px' }}>
+            <div className="rgrid rgrid--dash">
                 {/* Today's Appointments */}
                 <div className="card">
                     <div className="card__header">

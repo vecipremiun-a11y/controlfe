@@ -239,7 +239,7 @@ export default function PersonalPage() {
                 <button className="btn btn--primary" onClick={openNew}><Plus size={18} /> Nuevo Profesional</button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(360px, 100%), 1fr))', gap: '16px' }}>
                 {professionals.map(p => {
                     const mode = PAYMENT_MODES.find(m => m.value === (p.payment_mode || 'commission'));
                     const ModeIcon = mode?.icon || Percent;

@@ -71,6 +71,9 @@
   --sidebar-collapsed: 72px;
   --header-height: 64px;
 
+  /* Padding del área de contenido (se reduce en móvil) */
+  --content-pad: 28px;
+
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -159,9 +162,50 @@ a:hover {
 
 .layout__content {
   flex: 1;
-  padding: 28px;
+  padding: var(--content-pad);
   max-width: 1400px;
   width: 100%;
+  min-width: 0;
+}
+
+/* ==============================
+   CASH GATE (bloqueo de operaciones sin caja abierta)
+   Ventana por encima de la página con el contenido borroso detrás.
+   ============================== */
+.cash-gate__overlay {
+  position: fixed;
+  top: var(--header-height, 64px);
+  left: var(--sidebar-width);
+  right: 0;
+  bottom: 0;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(243, 244, 246, 0.45);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  animation: cashGateFade 200ms ease-out;
+}
+
+.cash-gate__modal {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-card, #fff);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+  animation: cashGatePop 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (max-width: 1024px) {
+  .cash-gate__overlay { left: 0; }
+}
+
+@keyframes cashGateFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cashGatePop {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* ==============================
@@ -1835,7 +1879,8 @@ a:hover {
 
 @media (max-width: 640px) {
   .layout__content {
-    padding: 16px;
+    --content-pad: 16px;
+    padding: var(--content-pad);
   }
 
   .layout__header {
@@ -4762,5 +4807,329 @@ a:hover {
 
   .checkin-card__content {
     padding: 12px 14px;
+  }
+}
+/* ==============================
+   POS RESPONSIVE
+   En escritorio replica el layout original (grilla con carrito fijo a la
+   derecha). En móvil/tablet el carrito pasa a ser un panel deslizante
+   inferior que se abre con un botón flotante.
+   ============================== */
+
+.pos-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  height: calc(100vh - var(--header-height));
+  width: calc(100vw - var(--sidebar-width));
+  margin: calc(-1 * var(--content-pad));
+  overflow: hidden;
+  transition: width var(--transition-normal);
+}
+
+.pos-items {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.pos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  overflow: auto;
+  flex: 1;
+  align-content: start;
+}
+
+.pos-cart {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  border-left: 1px solid var(--border-color);
+  background: white;
+}
+
+.pos-cart__close,
+.pos-cart-fab,
+.pos-cart__backdrop {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .pos-layout {
+    grid-template-columns: 1fr;
+    /* con los márgenes negativos, auto ocupa todo el ancho del viewport */
+    width: auto;
+    height: calc(100dvh - var(--header-height));
+  }
+
+  .pos-items {
+    padding: 16px;
+    /* espacio para que el botón flotante no tape las tarjetas */
+    padding-bottom: 92px;
+  }
+
+  .pos-cart {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: auto;
+    max-height: calc(100dvh - 72px);
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.18);
+    z-index: 80;
+    transform: translateY(105%);
+    transition: transform var(--transition-normal);
+  }
+
+  .pos-cart--open {
+    transform: translateY(0);
+  }
+
+  .pos-cart__close {
+    display: flex;
+  }
+
+  .pos-cart__backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 79;
+  }
+
+  .pos-cart-fab {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 18px;
+    border: none;
+    border-radius: 16px;
+    background: linear-gradient(135deg, var(--primary-500), var(--primary-700));
+    color: white;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 8px 30px rgba(124, 58, 237, 0.4);
+  }
+
+  .pos-cart-fab__label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .pos-cart-fab__count {
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 999px;
+    padding: 1px 9px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  .pos-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+}
+
+/* ==============================
+   GRILLAS RESPONSIVE (utilidades)
+   Reemplazan grillas inline de columnas fijas para que colapsen en móvil
+   sin alterar el layout de escritorio.
+   ============================== */
+
+.rgrid {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.rgrid--2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.rgrid--3 {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.rgrid--4 {
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.rgrid--dash {
+  grid-template-columns: 1.5fr 1fr;
+}
+
+.rgrid--side {
+  grid-template-columns: 250px 1fr;
+}
+
+.rgrid--list-detail {
+  grid-template-columns: 380px 1fr;
+  align-items: start;
+}
+
+.rgrid--totals {
+  grid-template-columns: 1fr 280px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .rgrid--2,
+  .rgrid--3,
+  .rgrid--dash,
+  .rgrid--side,
+  .rgrid--list-detail,
+  .rgrid--totals {
+    grid-template-columns: 1fr;
+  }
+
+  .rgrid--4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ==============================
+   AJUSTES GLOBALES MÓVIL
+   ============================== */
+
+@media (max-width: 768px) {
+  /* Tablas: scroll horizontal propio para no romper el ancho de la página */
+  .table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Pestañas desplazables si no caben */
+  .tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .page-header__actions {
+    flex-wrap: wrap;
+  }
+
+  .stat-card {
+    padding: 18px;
+  }
+
+  .stat-card__value {
+    font-size: 26px;
+  }
+
+  .modal__header {
+    padding: 16px 16px 0;
+  }
+
+  .modal__body {
+    padding: 16px;
+  }
+
+  .modal__footer {
+    padding: 12px 16px;
+  }
+
+  .modal-overlay {
+    padding: 12px;
+  }
+
+  .barbershop__modal-overlay {
+    padding: 12px;
+  }
+
+  /* Modal de pago como hoja inferior */
+  .pay-modal__overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .pay-modal {
+    border-radius: 20px 20px 0 0;
+    max-height: 90dvh;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .header__user-info {
+    display: none;
+  }
+
+  .header__right {
+    gap: 8px;
+  }
+
+  .card__header {
+    padding: 16px 16px 0;
+  }
+
+  .card__body {
+    padding: 16px;
+  }
+
+  .card__footer {
+    padding: 12px 16px;
+  }
+
+  .form-row--3 {
+    grid-template-columns: 1fr;
+  }
+
+  .toast-container {
+    left: 12px;
+    right: 12px;
+  }
+
+  .toast {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .pagination {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+}
+
+/* Dropdown de notificaciones a ancho de pantalla en móvil
+   (el componente usa estilos inline, por eso el !important) */
+@media (max-width: 480px) {
+  .notif-dropdown {
+    position: fixed !important;
+    top: calc(var(--header-height) + 6px) !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    max-height: 70dvh !important;
   }
 }
