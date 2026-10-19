@@ -5,7 +5,7 @@ import {
     Plus, Edit2, Trash2, Search, Clock, Calendar, UserCog, X, Upload,
     DollarSign, Shield, Phone, CreditCard, Briefcase, ChevronRight,
     Home, Percent, Wallet, Zap, CalendarOff, Check, AlertCircle, Camera,
-    User, Scissors, CheckSquare, Square,
+    User, Scissors, CheckSquare, Square, Smartphone,
 } from 'lucide-react';
 import { confirmDialog, alertDialog } from '@/lib/dialog';
 
@@ -60,6 +60,10 @@ export default function PersonalPage() {
     const [daysOffData, setDaysOffData] = useState([]);
     const [newDayOff, setNewDayOff] = useState({ date: '', reason: '' });
 
+    // Integración con la app Barber Keylut
+    const [appEnabled, setAppEnabled] = useState(false);
+    const [appBarbers, setAppBarbers] = useState(null);
+
     const [allServices, setAllServices] = useState([]);
     const [selectedServiceIds, setSelectedServiceIds] = useState([]);
     const [serviceSearch, setServiceSearch] = useState('');
@@ -72,14 +76,25 @@ export default function PersonalPage() {
         pay_frequency: 'daily', pay_day: '',
         access_role: 'own_agenda', country_code: '+56',
         salon_collects: true,
+        app_uses: false, app_link_uid: '',
     });
 
     useEffect(() => { loadData(); loadServices(); }, []);
 
+    // Barberos de la app para el selector de vínculo (al abrir el formulario).
+    useEffect(() => {
+        if (!showModal || !appEnabled) return;
+        setAppBarbers(null);
+        fetch('/api/salon/app-barbers')
+            .then(r => r.json())
+            .then(setAppBarbers)
+            .catch(() => setAppBarbers({ barbers: [], error: 'No se pudo conectar con la app' }));
+    }, [showModal, appEnabled]);
+
     async function loadData() {
         try {
             const res = await fetch('/api/salon/professionals');
-            if (res.ok) { const data = await res.json(); setProfessionals(data.professionals || []); }
+            if (res.ok) { const data = await res.json(); setProfessionals(data.professionals || []); setAppEnabled(!!data.barberkeylut?.enabled); }
         } catch (e) { console.error(e); }
         finally { setLoading(false); }
     }
@@ -101,6 +116,7 @@ export default function PersonalPage() {
             pay_frequency: 'daily', pay_day: '',
             access_role: 'own_agenda', country_code: '+56',
             salon_collects: true,
+            app_uses: false, app_link_uid: '',
         });
         setAvatarPreview(null);
         setAvatarFile(null);
@@ -127,6 +143,7 @@ export default function PersonalPage() {
             access_role: p.access_role || 'own_agenda',
             country_code: p.country_code || '+56',
             salon_collects: p.salon_collects !== 0,
+            app_uses: Number(p.app_uses) === 1, app_link_uid: '',
         });
         setAvatarPreview(p.avatar_url || null);
         setAvatarFile(null);
@@ -173,6 +190,10 @@ export default function PersonalPage() {
 
     async function handleSave(e) {
         e.preventDefault();
+        if (appEnabled && form.app_uses && !form.email.trim()) {
+            alertDialog({ title: 'Falta el email', message: 'Para usar la app Barber Keylut el email es obligatorio.', tone: 'warning' });
+            return;
+        }
         const method = editingProf ? 'PUT' : 'POST';
         const url = editingProf ? `/api/salon/professionals?id=${editingProf.id}` : '/api/salon/professionals';
         const formData = new FormData();
@@ -181,7 +202,17 @@ export default function PersonalPage() {
         if (avatarFile) formData.append('avatar', avatarFile);
         try {
             const res = await fetch(url, { method, body: formData });
-            if (res.ok) { setShowModal(false); loadData(); }
+            if (res.ok) {
+                const data = await res.json().catch(() => ({}));
+                setShowModal(false);
+                loadData();
+                // Resultado de la sincronización con la app Barber Keylut.
+                if (data.app?.message) {
+                    const tone = data.app.status === 'error' ? 'danger' : data.app.status === 'invited' ? 'primary' : 'success';
+                    const title = data.app.status === 'error' ? 'App Barber Keylut' : data.app.status === 'invited' ? 'Invitación enviada' : 'App Barber Keylut';
+                    alertDialog({ title, message: data.app.message, tone, icon: Smartphone });
+                }
+            }
             else { const err = await res.json().catch(() => ({})); alertDialog({ title: 'No se pudo guardar', message: err.error || 'Inténtalo de nuevo.', tone: 'danger' }); }
         } catch (e) { console.error(e); alertDialog({ title: 'Error de conexión', message: 'Revisa tu conexión a internet e inténtalo de nuevo.', tone: 'danger' }); }
     }
@@ -306,6 +337,21 @@ export default function PersonalPage() {
                                         }}>
                                             <Wallet size={12} />
                                             Cobra por su cuenta
+                                        </span>
+                                    )}
+                                    {appEnabled && p.app_barber_uid && Number(p.app_uses) === 1 && (
+                                        <span className="personal-chip personal-chip--app" title="Vinculado a la app Barber Keylut">
+                                            <Smartphone size={12} /> App
+                                        </span>
+                                    )}
+                                    {appEnabled && !p.app_barber_uid && p.app_link_status === 'invited' && (
+                                        <span className="personal-chip" title="Se activa cuando se registre en la app con su email">
+                                            <Smartphone size={12} /> Invitado en la app
+                                        </span>
+                                    )}
+                                    {appEnabled && Number(p.needs_payment_setup) === 1 && (
+                                        <span className="personal-chip personal-chip--warn" title="Creado desde la app: completa su modo de trabajo y pago">
+                                            <AlertCircle size={12} /> Completar datos de pago
                                         </span>
                                     )}
                                 </div>
@@ -472,9 +518,52 @@ export default function PersonalPage() {
                                             </div>
                                             <div className="form-group">
                                                 <label className="form-label">Email</label>
-                                                <input type="email" className="form-input" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="ana@email.com" />
+                                                <input type="email" className="form-input" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="ana@email.com" required={appEnabled && form.app_uses} />
                                             </div>
                                         </div>
+
+                                        {appEnabled && (() => {
+                                            const linked = !!editingProf?.app_barber_uid;
+                                            const invited = !linked && editingProf?.app_link_status === 'invited';
+                                            const available = (appBarbers?.barbers || []).filter(b => !b.linkedTo || b.linkedTo.id === editingProf?.id);
+                                            return (
+                                                <div className="personal-app">
+                                                    <label className="personal-app__toggle">
+                                                        <input type="checkbox" checked={form.app_uses}
+                                                            onChange={e => setForm({ ...form, app_uses: e.target.checked })} />
+                                                        <div>
+                                                            <div className="personal-app__title"><Smartphone size={15} /> Usa la app Barber Keylut</div>
+                                                            <div className="personal-app__desc">Recibe reservas de la app y su horario se sincroniza. El email es obligatorio.</div>
+                                                        </div>
+                                                    </label>
+                                                    {form.app_uses && (linked ? (
+                                                        <div className="personal-app__status personal-app__status--ok">
+                                                            <Check size={14} /> Vinculado con su cuenta de la app
+                                                        </div>
+                                                    ) : invited ? (
+                                                        <div className="personal-app__status">
+                                                            Invitado: se activa cuando se registre en la app con {editingProf.email}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="form-group" style={{ marginTop: '12px', marginBottom: 0 }}>
+                                                            <label className="form-label">Barbero en la app</label>
+                                                            <select className="form-input" value={form.app_link_uid}
+                                                                onChange={e => setForm({ ...form, app_link_uid: e.target.value })}>
+                                                                <option value="">Crear o invitar con el email de arriba</option>
+                                                                {available.map(b => (
+                                                                    <option key={b.id} value={b.id}>{b.name}{b.email ? ` · ${b.email}` : ''}{b.active === false ? ' (inactivo)' : ''}</option>
+                                                                ))}
+                                                            </select>
+                                                            <div className="personal-app__hint">
+                                                                {appBarbers === null ? 'Cargando barberos de la app…'
+                                                                    : appBarbers.error ? appBarbers.error
+                                                                        : 'Si ya tiene cuenta de barbero en la app, elígelo para vincularlo una sola vez.'}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            );
+                                        })()}
 
                                         <div className="form-group">
                                             <label className="form-label">Color</label>

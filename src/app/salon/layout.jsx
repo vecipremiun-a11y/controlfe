@@ -395,15 +395,18 @@ export default function SalonLayout({ children }) {
                                                 <Bell size={32} style={{ opacity: 0.3, marginBottom: '12px' }} />
                                                 <p style={{ fontWeight: 600, fontSize: '14px' }}>Sin notificaciones</p>
                                                 <p style={{ fontSize: '12px', marginTop: '4px' }}>
-                                                    Las nuevas reservas online aparecerán aquí
+                                                    Las nuevas reservas online y de la app aparecerán aquí
                                                 </p>
                                             </div>
                                         ) : (
                                             notifications.map(n => {
                                                 const isUnread = new Date(n.created_at) > new Date(lastSeen);
+                                                const fromApp = n.kind === 'app' || n.kind === 'app_attention';
+                                                const title = n.kind === 'app_attention' ? 'Reserva de la app requiere atención'
+                                                    : n.kind === 'app' ? 'Nueva reserva en la app' : 'Nueva reserva online';
                                                 return (
-                                                    <div key={n.id}
-                                                        onClick={() => { setShowNotifications(false); router.push('/salon/agenda'); }}
+                                                    <div key={`${n.kind}-${n.id}`}
+                                                        onClick={() => { setShowNotifications(false); router.push(fromApp ? '/salon/agenda?tab=app' : '/salon/agenda'); }}
                                                         style={{
                                                             display: 'flex', gap: '12px', padding: '14px 20px',
                                                             cursor: 'pointer', borderBottom: '1px solid var(--gray-100)',
@@ -424,15 +427,15 @@ export default function SalonLayout({ children }) {
                                                         {/* Content */}
                                                         <div style={{ flex: 1, minWidth: 0 }}>
                                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2px' }}>
-                                                                <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)' }}>
-                                                                    Nueva reserva online
+                                                                <span style={{ fontWeight: 700, fontSize: '13px', color: n.kind === 'app_attention' ? '#B45309' : 'var(--text-primary)' }}>
+                                                                    {title}
                                                                 </span>
                                                                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', marginLeft: '8px' }}>
                                                                     {formatTimeAgo(n.created_at)}
                                                                 </span>
                                                             </div>
                                                             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                                                                <strong>{n.client_name}</strong> reservó <strong>{n.service_name}</strong>
+                                                                <strong>{n.client_name}</strong> reservó <strong>{n.service_name || 'un servicio'}</strong>
                                                             </div>
                                                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px', display: 'flex', gap: '10px' }}>
                                                                 <span>📅 {formatDate(n.date)}</span>

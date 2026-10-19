@@ -4,9 +4,15 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     ChevronLeft, ChevronRight, Plus, Clock, User, Phone, X,
     CheckCircle, AlertCircle, XCircle, PlayCircle, Eye, Scissors,
-    Calendar, MapPin, MessageSquare, Edit2, Trash2, Check,
+    Calendar, MapPin, MessageSquare, Edit2, Trash2, Check, Smartphone,
 } from 'lucide-react';
 import { alertDialog } from '@/lib/dialog';
+import { useStore } from '@/lib/store';
+import AppBookingsInbox, { inboxBadgeCount } from './AppBookingsInbox';
+import { appBookingAction, cancelAppBooking } from './appBookingActions';
+
+// Roles que ven la bandeja de reservas de la app (responden por el barbero).
+const APP_INBOX_ROLES = ['owner', 'admin', 'supervisor', 'recepcionista', 'receptionist'];
 
 const HOUR_HEIGHT = 72; // px per hour
 const START_HOUR = 7;
@@ -68,6 +74,32 @@ export default function AgendaPage() {
     // Appointment detail panel
     const [selectedApt, setSelectedApt] = useState(null);
 
+    // Reservas de la app Barber Keylut
+    const { user } = useStore();
+    const [tab, setTab] = useState('agenda');
+    const [appEnabled, setAppEnabled] = useState(false);
+    const [appCount, setAppCount] = useState(0);
+    const canUseInbox = appEnabled && APP_INBOX_ROLES.includes(user?.role);
+
+    // La campana abre directo la bandeja con ?tab=app.
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get('tab') === 'app') setTab('app');
+    }, []);
+
+    // Contador de la pestaña mientras se ve la agenda (la bandeja lo actualiza al abrirla).
+    useEffect(() => {
+        if (!canUseInbox || tab === 'app') return;
+        const loadCount = async () => {
+            try {
+                const res = await fetch('/api/salon/app-bookings', { cache: 'no-store' });
+                if (res.ok) setAppCount(inboxBadgeCount((await res.json()).items || []));
+            } catch { /* sin conexión */ }
+        };
+        loadCount();
+        const t = setInterval(loadCount, 60000);
+        return () => clearInterval(t);
+    }, [canUseInbox, tab]);
+
     // Current time indicator
     const [now, setNow] = useState(new Date());
     const gridRef = useRef(null);
@@ -100,7 +132,7 @@ export default function AgendaPage() {
                 fetch('/api/salon/clients'),
             ]);
             if (aptsRes.ok) { const d = await aptsRes.json(); setAppointments(d.appointments || []); }
-            if (profsRes.ok) { const d = await profsRes.json(); setProfessionals(d.professionals || []); }
+            if (profsRes.ok) { const d = await profsRes.json(); setProfessionals(d.professionals || []); setAppEnabled(!!d.barberkeylut?.enabled); }
             if (svcsRes.ok) { const d = await svcsRes.json(); setServices(d.services || []); }
             if (clientsRes.ok) { const d = await clientsRes.json(); setClients(d.clients || []); }
         } catch (e) { console.error(e); }
@@ -160,8 +192,23 @@ export default function AgendaPage() {
             if (res.ok) {
                 loadData();
                 setSelectedApt(prev => prev ? { ...prev, status: newStatus } : null);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                alertDialog({ title: 'No se pudo cambiar el estado', message: err.error || 'Inténtalo de nuevo.', tone: 'warning' });
             }
         } catch (e) { console.error(e); }
+    }
+
+    // Citas de la app: confirmar y cancelar pasan por la app (la cita local se
+    // actualiza con su respuesta); en atención y terminado son locales.
+    async function appAction(apt, kind) {
+        const ok = kind === 'confirm'
+            ? await appBookingAction(apt.external_id, { action: 'confirm' })
+            : await cancelAppBooking(apt.external_id, { pending: apt.status === 'reservado' });
+        if (ok) {
+            setSelectedApt(null);
+            loadData();
+        }
     }
 
     // Check if today
@@ -198,6 +245,18 @@ export default function AgendaPage() {
                     <p className="page-header__subtitle" style={{ textTransform: 'capitalize' }}>{dateStr}</p>
                 </div>
                 <div className="page-header__actions">
+                    {canUseInbox && (
+                        <div className="agenda-tabs">
+                            <button className={`agenda-tabs__btn${tab === 'agenda' ? ' agenda-tabs__btn--active' : ''}`} onClick={() => setTab('agenda')}>
+                                <Calendar size={15} /> Agenda
+                            </button>
+                            <button className={`agenda-tabs__btn${tab === 'app' ? ' agenda-tabs__btn--active' : ''}`} onClick={() => setTab('app')}>
+                                <Smartphone size={15} /> Reservas de la app
+                                {appCount > 0 && <span className="agenda-tabs__badge">{appCount}</span>}
+                            </button>
+                        </div>
+                    )}
+                    {tab === 'agenda' && (<>
                     <div style={{ display: 'flex', gap: '0', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
                         {[{ key: 'day', label: 'Día' }, { key: 'week', label: 'Semana' }].map(v => (
                             <button key={v.key} className={`btn btn--sm ${view === v.key ? 'btn--primary' : 'btn--ghost'}`}
@@ -209,9 +268,13 @@ export default function AgendaPage() {
                     <button className="btn btn--primary" onClick={() => openNewModal('', '')}>
                         <Plus size={18} /> Nueva Cita
                     </button>
+                    </>)}
                 </div>
             </div>
 
+            {tab === 'app' && canUseInbox ? (
+                <AppBookingsInbox onChanged={loadData} onCount={setAppCount} />
+            ) : (<>
             {/* Navigation + Stats */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -356,16 +419,18 @@ export default function AgendaPage() {
                                                         {isSmall ? (
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                                 <span style={{ color: 'white', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                                    {apt.client_name || 'Cliente'} · {apt.service_name || ''}
+                                                                    {apt.source === 'app' && <span className="agenda-app-tag">App</span>}
+                                                                    {apt.client_name || 'Cliente'} · {apt.service_name || apt.external_service_name || ''}
                                                                 </span>
                                                             </div>
                                                         ) : (
                                                             <>
                                                                 <div style={{ color: 'white', fontSize: '12px', fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                    {apt.source === 'app' && <span className="agenda-app-tag">App</span>}
                                                                     {apt.client_name || 'Cliente'}
                                                                 </div>
                                                                 <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: '11px', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                                    {apt.service_name || 'Servicio'}
+                                                                    {apt.service_name || apt.external_service_name || 'Servicio'}
                                                                 </div>
                                                                 {!isSmall && duration >= 40 && (
                                                                     <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', marginTop: '2px' }}>
@@ -403,6 +468,7 @@ export default function AgendaPage() {
                     )}
                 </div>
             </div>
+            </>)}
 
             {/* ======== APPOINTMENT DETAIL PANEL ======== */}
             {selectedApt && (
@@ -461,7 +527,7 @@ export default function AgendaPage() {
                                     <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>Servicio</div>
                                     <div style={{ fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: selectedApt.service_color || '#6C5CE7' }} />
-                                        {selectedApt.service_name || 'N/A'}
+                                        {selectedApt.service_name || selectedApt.external_service_name || 'N/A'}
                                     </div>
                                 </div>
                                 <div>
@@ -483,7 +549,7 @@ export default function AgendaPage() {
                                 {selectedApt.source && (
                                     <div>
                                         <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>Origen</div>
-                                        <div style={{ fontSize: '14px', fontWeight: 600, textTransform: 'capitalize' }}>{selectedApt.source}</div>
+                                        <div style={{ fontSize: '14px', fontWeight: 600, textTransform: 'capitalize' }}>{selectedApt.source === 'app' ? 'App Barber Keylut' : selectedApt.source}</div>
                                     </div>
                                 )}
                             </div>
@@ -495,8 +561,48 @@ export default function AgendaPage() {
                                 </div>
                             )}
 
+                            {/* Reserva de la app: confirmar y cancelar pasan por la app */}
+                            {selectedApt.source === 'app' && (
+                                <div className="agenda-app-actions">
+                                    <div className="agenda-app-actions__note">
+                                        <Smartphone size={14} /> Reserva de la app: confirmarla o cancelarla le avisa al cliente.
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        {selectedApt.status === 'reservado' && (
+                                            <button className="btn btn--sm" style={{ background: STATUS_MAP.confirmado.bg, color: STATUS_MAP.confirmado.color, border: `1px solid ${STATUS_MAP.confirmado.color}30`, fontWeight: 600 }}
+                                                onClick={() => appAction(selectedApt, 'confirm')}>
+                                                <CheckCircle size={14} /> Confirmar
+                                            </button>
+                                        )}
+                                        {selectedApt.status === 'confirmado' && (
+                                            <button className="btn btn--sm" style={{ background: STATUS_MAP.en_atencion.bg, color: STATUS_MAP.en_atencion.color, border: `1px solid ${STATUS_MAP.en_atencion.color}30`, fontWeight: 600 }}
+                                                onClick={() => updateStatus(selectedApt.id, 'en_atencion')}>
+                                                <PlayCircle size={14} /> En atención
+                                            </button>
+                                        )}
+                                        {selectedApt.status === 'en_atencion' && (
+                                            <button className="btn btn--sm" style={{ background: STATUS_MAP.terminado.bg, color: STATUS_MAP.terminado.color, border: `1px solid ${STATUS_MAP.terminado.color}30`, fontWeight: 600 }}
+                                                onClick={() => updateStatus(selectedApt.id, 'terminado')}>
+                                                <Check size={14} /> Terminado
+                                            </button>
+                                        )}
+                                        {(selectedApt.status === 'reservado' || selectedApt.status === 'confirmado') && (
+                                            <button className="btn btn--sm" style={{ background: '#FEF2F2', color: '#EF4444', border: '1px solid #FECACA', fontWeight: 600 }}
+                                                onClick={() => appAction(selectedApt, 'cancel')}>
+                                                <XCircle size={14} /> {selectedApt.status === 'reservado' ? 'Rechazar' : 'Cancelar'}
+                                            </button>
+                                        )}
+                                        {canUseInbox && (selectedApt.status === 'reservado' || selectedApt.status === 'confirmado') && (
+                                            <button className="btn btn--sm btn--outline" onClick={() => { setSelectedApt(null); setTab('app'); }}>
+                                                Reasignar en la bandeja
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Status actions */}
-                            {STATUS_TRANSITIONS[selectedApt.status]?.length > 0 && (
+                            {selectedApt.source !== 'app' && STATUS_TRANSITIONS[selectedApt.status]?.length > 0 && (
                                 <div>
                                     <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px' }}>Cambiar Estado</div>
                                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

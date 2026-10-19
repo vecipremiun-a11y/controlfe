@@ -568,6 +568,8 @@ export default function BarbershopDashboard() {
                     total: totalSnapshot,
                     payment_method: method,
                     client_name: ticketSnapshot.clientName || null,
+                    // Vincula la venta a la cita (así se sabe si ya se cobró).
+                    appointment_id: ticketSnapshot.appointmentId || null,
                 }),
             });
             if (res.ok) {
@@ -627,8 +629,9 @@ export default function BarbershopDashboard() {
         const appt = prof.currentAppointment;
 
         let items = [{
-            item_id: appt.service_id,
-            name: appt.service_name,
+            // Las citas de la app pueden traer un servicio que no existe en ControlFe.
+            item_id: appt.service_id || (appt.source === 'app' ? 'app-service' : 'sin-servicio'),
+            name: appt.service_name || 'Servicio',
             type: 'service',
             quantity: 1,
             unit_price: appt.service_price || 0,
@@ -1090,7 +1093,9 @@ export default function BarbershopDashboard() {
                                                 </div>
                                                 <div className="barbershop__station-service-name">
                                                     {fullServiceName(prof.currentAppointment)}
-                                                    {TURN_KIND_LABELS[turnKind] && ` · ${TURN_KIND_LABELS[turnKind]}`}
+                                                    {prof.currentAppointment?.source === 'app'
+                                                        ? ' · reserva de la app'
+                                                        : TURN_KIND_LABELS[turnKind] && ` · ${TURN_KIND_LABELS[turnKind]}`}
                                                 </div>
                                                 <div className="barbershop__progress-bar">
                                                     <div
