@@ -3,11 +3,13 @@ import { getCurrentUser } from '@/lib/auth';
 import { query, execute } from '@/lib/db';
 import { generateId } from '@/lib/utils';
 import { uploadImage } from '@/lib/upload';
+import { ensureProfessionalColumns, parseSalonCollects } from '@/lib/professionals';
 
 export async function GET(request) {
     try {
         const user = await getCurrentUser(request);
         if (!user?.tenantId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+        await ensureProfessionalColumns();
 
         const monthStart = new Date().toISOString().slice(0, 7) + '-01';
         const professionals = await query(
@@ -100,15 +102,17 @@ export async function POST(request) {
         const pay_day = body.pay_day || null;
         const access_role = body.access_role || 'own_agenda';
         const country_code = body.country_code || '+56';
+        const salon_collects = parseSalonCollects(body.salon_collects);
 
         let avatar_url = null;
         if (avatarFile && avatarFile.size > 0) {
             avatar_url = await saveAvatar(avatarFile, id);
         }
 
+        await ensureProfessionalColumns();
         await execute(
-            `INSERT INTO professionals (id, tenant_id, branch_id, name, phone, email, color, commission_percent, rut, payment_mode, base_salary, per_service_rate, rent_amount, rent_frequency, pay_frequency, pay_day, access_role, country_code, avatar_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [id, user.tenantId, user.branchId || null, body.name, body.phone || null, body.email || null, body.color || '#6C5CE7', commission_percent, body.rut || null, payment_mode, base_salary, per_service_rate, rent_amount, rent_frequency, pay_frequency, pay_day, access_role, country_code, avatar_url]
+            `INSERT INTO professionals (id, tenant_id, branch_id, name, phone, email, color, commission_percent, rut, payment_mode, base_salary, per_service_rate, rent_amount, rent_frequency, pay_frequency, pay_day, access_role, country_code, avatar_url, salon_collects) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, user.tenantId, user.branchId || null, body.name, body.phone || null, body.email || null, body.color || '#6C5CE7', commission_percent, body.rut || null, payment_mode, base_salary, per_service_rate, rent_amount, rent_frequency, pay_frequency, pay_day, access_role, country_code, avatar_url, salon_collects]
         );
 
         // Create default schedules (Mon-Sat, 9-18)
@@ -161,32 +165,39 @@ export async function PUT(request) {
             body = await request.json();
         }
 
-        const commission_percent = body.commission_percent !== undefined ? parseFloat(body.commission_percent) : 50;
-        const payment_mode = body.payment_mode || 'commission';
-        const base_salary = body.base_salary ? parseFloat(body.base_salary) : 0;
-        const per_service_rate = body.per_service_rate ? parseFloat(body.per_service_rate) : 0;
-        const rent_amount = body.rent_amount ? parseFloat(body.rent_amount) : 0;
-        const rent_frequency = body.rent_frequency || 'monthly';
-        const pay_frequency = body.pay_frequency || 'daily';
-        const pay_day = body.pay_day || null;
-        const access_role = body.access_role || 'own_agenda';
-        const country_code = body.country_code || '+56';
+        // Horario y Libres envían solo name + schedules/exceptions: en ese caso no
+        // se toca el perfil (antes se reescribía con valores por defecto y se
+        // perdían el modo de pago, el arriendo, el teléfono, etc.).
+        if (body.payment_mode !== undefined) {
+            const commission_percent = body.commission_percent !== undefined ? parseFloat(body.commission_percent) : 50;
+            const payment_mode = body.payment_mode || 'commission';
+            const base_salary = body.base_salary ? parseFloat(body.base_salary) : 0;
+            const per_service_rate = body.per_service_rate ? parseFloat(body.per_service_rate) : 0;
+            const rent_amount = body.rent_amount ? parseFloat(body.rent_amount) : 0;
+            const rent_frequency = body.rent_frequency || 'monthly';
+            const pay_frequency = body.pay_frequency || 'daily';
+            const pay_day = body.pay_day || null;
+            const access_role = body.access_role || 'own_agenda';
+            const country_code = body.country_code || '+56';
+            const salon_collects = parseSalonCollects(body.salon_collects);
 
-        let avatarClause = '';
-        let params = [body.name, body.phone || null, body.email || null, body.color || '#6C5CE7', commission_percent, body.rut || null, payment_mode, base_salary, per_service_rate, rent_amount, rent_frequency, pay_frequency, pay_day, access_role, country_code];
+            let avatarClause = '';
+            let params = [body.name, body.phone || null, body.email || null, body.color || '#6C5CE7', commission_percent, body.rut || null, payment_mode, base_salary, per_service_rate, rent_amount, rent_frequency, pay_frequency, pay_day, access_role, country_code, salon_collects];
 
-        if (avatarFile && avatarFile.size > 0) {
-            const avatar_url = await saveAvatar(avatarFile, id);
-            avatarClause = ', avatar_url = ?';
-            params.push(avatar_url);
+            if (avatarFile && avatarFile.size > 0) {
+                const avatar_url = await saveAvatar(avatarFile, id);
+                avatarClause = ', avatar_url = ?';
+                params.push(avatar_url);
+            }
+
+            params.push(id, user.tenantId);
+
+            await ensureProfessionalColumns();
+            await execute(
+                `UPDATE professionals SET name = ?, phone = ?, email = ?, color = ?, commission_percent = ?, rut = ?, payment_mode = ?, base_salary = ?, per_service_rate = ?, rent_amount = ?, rent_frequency = ?, pay_frequency = ?, pay_day = ?, access_role = ?, country_code = ?, salon_collects = ?${avatarClause}, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`,
+                params
+            );
         }
-
-        params.push(id, user.tenantId);
-
-        await execute(
-            `UPDATE professionals SET name = ?, phone = ?, email = ?, color = ?, commission_percent = ?, rut = ?, payment_mode = ?, base_salary = ?, per_service_rate = ?, rent_amount = ?, rent_frequency = ?, pay_frequency = ?, pay_day = ?, access_role = ?, country_code = ?${avatarClause}, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`,
-            params
-        );
 
         // Update schedules if provided
         if (body.schedules) {
