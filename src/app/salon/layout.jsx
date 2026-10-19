@@ -31,6 +31,7 @@ import {
     TrendingUp,
 } from 'lucide-react';
 import { canAccess, firstAllowedRoute } from '@/lib/permissions';
+import { usePolling } from '@/lib/usePolling';
 import CashGate from '@/components/CashGate';
 
 // Rutas del menú OPERACIONES que requieren una caja abierta para usarse.
@@ -164,11 +165,10 @@ export default function SalonLayout({ children }) {
     }, [lastSeen, playNotifSound]);
 
     useEffect(() => {
-        if (!user) return;
-        fetchNotifications();
-        const interval = setInterval(fetchNotifications, 30000); // Poll every 30 seconds
-        return () => clearInterval(interval);
+        if (user) fetchNotifications();
     }, [user, fetchNotifications]);
+    // Cada 15 s con la pestaña visible: una reserva de la app avisa en segundos.
+    usePolling(fetchNotifications, 15000, !!user);
 
     // Close dropdown on outside click
     useEffect(() => {

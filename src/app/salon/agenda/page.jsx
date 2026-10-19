@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { alertDialog } from '@/lib/dialog';
 import { useStore } from '@/lib/store';
+import { usePolling } from '@/lib/usePolling';
 import AppBookingsInbox, { inboxBadgeCount } from './AppBookingsInbox';
 import { appBookingAction, cancelAppBooking } from './appBookingActions';
 
@@ -87,18 +88,17 @@ export default function AgendaPage() {
     }, []);
 
     // Contador de la pestaña mientras se ve la agenda (la bandeja lo actualiza al abrirla).
+    const loadAppCount = useCallback(async () => {
+        try {
+            const res = await fetch('/api/salon/app-bookings', { cache: 'no-store' });
+            if (res.ok) setAppCount(inboxBadgeCount((await res.json()).items || []));
+        } catch { /* sin conexión */ }
+    }, []);
+    const pollAppCount = canUseInbox && tab !== 'app';
     useEffect(() => {
-        if (!canUseInbox || tab === 'app') return;
-        const loadCount = async () => {
-            try {
-                const res = await fetch('/api/salon/app-bookings', { cache: 'no-store' });
-                if (res.ok) setAppCount(inboxBadgeCount((await res.json()).items || []));
-            } catch { /* sin conexión */ }
-        };
-        loadCount();
-        const t = setInterval(loadCount, 60000);
-        return () => clearInterval(t);
-    }, [canUseInbox, tab]);
+        if (pollAppCount) loadAppCount();
+    }, [pollAppCount, loadAppCount]);
+    usePolling(loadAppCount, 15000, pollAppCount);
 
     // Current time indicator
     const [now, setNow] = useState(new Date());

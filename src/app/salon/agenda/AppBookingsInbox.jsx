@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import { alertDialog } from '@/lib/dialog';
+import { usePolling } from '@/lib/usePolling';
 import { appBookingAction, cancelAppBooking } from './appBookingActions';
 
 const ATTENTION_LABELS = {
@@ -31,13 +32,13 @@ function fmtDay(date, today) {
 
 // Bandeja "Reservas de la app": responde en nombre del barbero. Al abrir trae
 // las reservas desde la app (respaldo por si se perdió un webhook) y luego
-// refresca cada 30 s desde la base local.
+// refresca cada 10 s desde la base local.
 export default function AppBookingsInbox({ onChanged, onCount }) {
     const { addToast } = useStore();
     const [data, setData] = useState(null);
     const [unlinked, setUnlinked] = useState([]);
     const [refreshError, setRefreshError] = useState(null);
-    const [tab, setTab] = useState('attention');
+    const [pickedTab, setTab] = useState(null);
     const [busyId, setBusyId] = useState(null);
     const [reassign, setReassign] = useState(null);   // { item, professionalId, confirm }
     const [charge, setCharge] = useState(null);       // { item, amount, method }
@@ -59,9 +60,9 @@ export default function AppBookingsInbox({ onChanged, onCount }) {
 
     useEffect(() => {
         load(true);
-        const t = setInterval(() => load(false), 30000);
-        return () => clearInterval(t);
     }, [load]);
+    // Una reserva nueva llega por webhook a la base: se ve en segundos.
+    usePolling(() => load(false), 10000);
 
     const today = data?.today;
     const groups = useMemo(() => {
@@ -74,6 +75,9 @@ export default function AppBookingsInbox({ onChanged, onCount }) {
         const upcoming = items.filter((i) => ['confirmado', 'en_atencion'].includes(i.status) && i.date >= (today || '') && !i.needsCharge);
         return { attention, pending, upcoming, badge: inboxBadgeCount(items) + extra.length };
     }, [data, unlinked, today]);
+
+    // Sin pestaña elegida: "Requieren atención" si hay algo; si no, Pendientes.
+    const tab = pickedTab || (groups.attention.length || !groups.pending.length ? 'attention' : 'pending');
 
     useEffect(() => {
         if (onCount) onCount(groups.badge);
