@@ -31,6 +31,13 @@ export function tzToday(timeZone = APP_TIMEZONE, date = new Date()) {
     }).format(date);
 }
 
+// Local time 'HH:MM' (24h) in the given timezone for a given instant
+export function tzTime(timeZone = APP_TIMEZONE, date = new Date()) {
+    return new Intl.DateTimeFormat('en-GB', {
+        timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).format(date);
+}
+
 // Resolve a report range ('today'|'week'|'month'|'year') into the local
 // start date and the timezone offset to convert UTC columns in SQL.
 export function reportDateFilter(range, timeZone = APP_TIMEZONE) {

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { query, execute, queryOne } from '@/lib/db';
-import { generateId } from '@/lib/utils';
+import { generateId, tzToday } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +13,7 @@ export async function GET(request) {
 
         const { searchParams } = new URL(request.url);
         const professionalId = searchParams.get('professional_id');
-        const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
+        const date = searchParams.get('date') || tzToday();
 
         if (!professionalId) {
             return NextResponse.json({ error: 'Falta professional_id' }, { status: 400 });
@@ -44,7 +44,7 @@ export async function POST(request) {
 
         const body = await request.json();
         const { professional_id, action } = body; // action: 'clock_in' or 'clock_out'
-        const date = new Date().toISOString().split('T')[0];
+        const date = tzToday(); // mismo día local que usa la fila de turnos
         const now = new Date().toISOString();
 
         if (!professional_id || !action) {

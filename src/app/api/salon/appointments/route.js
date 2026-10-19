@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { query, execute } from '@/lib/db';
+import { query, queryOne, execute } from '@/lib/db';
 import { generateId } from '@/lib/utils';
+import { recordAppointmentStatus } from '@/lib/turnQueue';
 
 export async function GET(request) {
     try {
@@ -101,10 +102,21 @@ export async function PUT(request) {
         const body = await request.json();
 
         if (body.status) {
+            const previous = await queryOne(`SELECT * FROM appointments WHERE id = ? AND tenant_id = ?`, [id, user.tenantId]);
             await execute(
                 `UPDATE appointments SET status = ?, cancel_reason = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`,
                 [body.status, body.cancel_reason || null, id, user.tenantId]
             );
+
+            // Fila de turnos: hora real de inicio/término y registro del evento.
+            // No mueve prioridades, así que un fallo aquí no debe afectar la cita.
+            if (previous) {
+                try {
+                    await recordAppointmentStatus({ tenantId: user.tenantId, appointment: previous, newStatus: body.status, userId: user.id });
+                } catch (e) {
+                    console.error('Turn queue record error:', e);
+                }
+            }
 
             // Update client no-show count
             if (body.status === 'no_show') {
