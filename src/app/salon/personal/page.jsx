@@ -518,7 +518,7 @@ export default function PersonalPage() {
                                             </div>
                                             <div className="form-group">
                                                 <label className="form-label">Email</label>
-                                                <input type="email" className="form-input" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="ana@email.com" required={appEnabled && form.app_uses} />
+                                                <input type="email" className="form-input" value={form.email} onChange={e => setForm({ ...form, email: e.target.value.replace(/^\s*mailto:/i, '').trim() })} placeholder="ana@email.com" required={appEnabled && form.app_uses} />
                                             </div>
                                         </div>
 
