@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Scissors, TriangleAlert, CircleCheck, CircleAlert, Info, X } from 'lucide-react';
 import { useDialogStore } from '@/lib/dialog';
 import { useStore } from '@/lib/store';
@@ -21,7 +21,12 @@ const TOAST_ICONS = {
 
 function Dialog({ dialog, onClose }) {
     const confirmRef = useRef(null);
-    const isConfirm = dialog.kind === 'confirm';
+    const inputRef = useRef(null);
+    const isPrompt = dialog.kind === 'prompt';
+    const isConfirm = dialog.kind === 'confirm' || isPrompt;
+    const [text, setText] = useState(dialog.defaultValue || '');
+    const required = isPrompt && dialog.required !== false;
+    const canConfirm = !required || text.trim().length > 0;
     const tone = dialog.tone || 'primary';
     const Icon = dialog.icon || DIALOG_ICONS[tone] || Scissors;
 
@@ -29,7 +34,7 @@ function Dialog({ dialog, onClose }) {
     // el foco vuelve a donde estaba.
     useEffect(() => {
         const previous = document.activeElement;
-        confirmRef.current?.focus();
+        (inputRef.current || confirmRef.current)?.focus();
         const onKey = (e) => {
             if (e.key === 'Escape') {
                 e.preventDefault();
@@ -63,6 +68,20 @@ function Dialog({ dialog, onClose }) {
                     {dialog.message && (
                         <p id="app-dialog-message" className="app-dialog__message">{dialog.message}</p>
                     )}
+                    {isPrompt && (
+                        <textarea
+                            ref={inputRef}
+                            className="app-dialog__input"
+                            rows={3}
+                            value={text}
+                            placeholder={dialog.placeholder || ''}
+                            onChange={(e) => setText(e.target.value)}
+                            onKeyDown={(e) => {
+                                // Ctrl/Cmd + Enter confirma; Enter solo hace salto de línea.
+                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canConfirm) onClose(text.trim());
+                            }}
+                        />
+                    )}
                 </div>
                 <div className="app-dialog__actions">
                     {isConfirm && (
@@ -70,7 +89,13 @@ function Dialog({ dialog, onClose }) {
                             {dialog.cancelText || 'Cancelar'}
                         </button>
                     )}
-                    <button type="button" ref={confirmRef} className="app-dialog__btn app-dialog__btn--confirm" onClick={() => onClose(true)}>
+                    <button
+                        type="button"
+                        ref={confirmRef}
+                        className="app-dialog__btn app-dialog__btn--confirm"
+                        disabled={!canConfirm}
+                        onClick={() => onClose(isPrompt ? text.trim() : true)}
+                    >
                         {dialog.confirmText || (isConfirm ? 'Confirmar' : 'Entendido')}
                     </button>
                 </div>
@@ -86,7 +111,8 @@ function DialogHost() {
         const dialog = queue[0];
         if (!dialog) return;
         shift();
-        dialog.resolve(dialog.kind === 'confirm' ? value : undefined);
+        if (dialog.kind === 'prompt') dialog.resolve(typeof value === 'string' ? value : null);
+        else dialog.resolve(dialog.kind === 'confirm' ? value : undefined);
     }, []);
     if (!current) return null;
     return <Dialog key={current.id} dialog={current} onClose={close} />;

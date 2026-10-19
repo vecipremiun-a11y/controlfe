@@ -29,3 +29,7 @@ export const confirmDialog = (options) => open('confirm', options);
 
 // Resuelve cuando el usuario cierra el aviso.
 export const alertDialog = (options) => open('alert', options);
+
+// Pide un texto (ej. motivo de cancelación). Resuelve el texto o null si cancela.
+// Opciones extra: placeholder, defaultValue, required (true por defecto).
+export const promptDialog = (options) => open('prompt', options);
