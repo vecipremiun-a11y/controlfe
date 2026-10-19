@@ -95,6 +95,8 @@ const INTEGRATION_MIGRATIONS = [
     `ALTER TABLE professionals ADD COLUMN app_barber_revision INTEGER`,
     // Creado desde la app: faltan sus datos de pago en Personal.
     `ALTER TABLE professionals ADD COLUMN needs_payment_setup INTEGER NOT NULL DEFAULT 0`,
+    // revision de la reserva o del barbero que traía cada webhook.
+    `ALTER TABLE integration_events ADD COLUMN revision INTEGER`,
 ];
 
 const INTEGRATION_INDEXES = [
@@ -542,8 +544,12 @@ export async function applyAppBarber(barber, { db = getDb(), tenantId } = {}) {
                 args: [barber.name || prof.name, barber.email || prof.email, phone, countryCode,
                     barber.photoUrl || null, active, barber.id, revision, prof.id],
             });
-            const scheduleChanged = barber.schedule ? await applyScheduleFromApp(tx, prof.id, barber.schedule) : false;
-            return { result: 'updated', professionalId: prof.id, linkedNow, scheduleChanged };
+            // Al vincular manda el horario de ControlFe (se envía a la app
+            // después); si aún no tiene, se toma el de la app.
+            const pushSchedule = linkedNow
+                && !!(await one(tx, `SELECT 1 AS x FROM schedules WHERE professional_id = ? AND active = 1 LIMIT 1`, [prof.id]));
+            const scheduleChanged = barber.schedule && !pushSchedule ? await applyScheduleFromApp(tx, prof.id, barber.schedule) : false;
+            return { result: 'updated', professionalId: prof.id, linkedNow, scheduleChanged, pushSchedule };
         }
         const id = generateId();
         await tx.execute({
@@ -651,15 +657,21 @@ export async function syncProfessionalToApp({ db = getDb(), tenantId, profession
     }
 }
 
-// Horario guardado en Personal: la app recibe inicio y fin de cada día.
-export async function pushScheduleToApp({ db = getDb(), tenantId, professionalId }) {
+// Horario guardado en Personal o barbero recién vinculado: la app recibe
+// inicio y fin de cada día (los días libres no van). Al vincular, un barbero
+// sin horario en ControlFe no borra el de la app (onLink).
+export async function pushScheduleToApp({ db = getDb(), tenantId, professionalId, onLink = false }) {
     await ensureIntegrationTables(db);
     const p = await loadProfessional(db, tenantId, professionalId);
-    if (!p?.app_barber_uid || !Number(p.app_uses)) return;
+    if (!p?.app_barber_uid || !Number(p.app_uses)) return { result: 'ignored' };
+    const schedule = await scheduleForApp(db, p.id);
+    if (onLink && !schedule.length) return { result: 'empty' };
     try {
-        await appApi.updateBarber(p.app_barber_uid, { schedule: await scheduleForApp(db, p.id) });
+        await appApi.updateBarber(p.app_barber_uid, { schedule });
+        return { result: 'sent', days: schedule.length };
     } catch (e) {
         logError('schedule', e);
+        return { result: 'error' };
     }
 }
 

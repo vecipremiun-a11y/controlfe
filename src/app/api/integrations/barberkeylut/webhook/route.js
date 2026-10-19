@@ -2,7 +2,7 @@ import { NextResponse, after } from 'next/server';
 import { getDb } from '@/lib/db';
 import {
     getConfig, verifySignature, ensureIntegrationTables, applyAppAppointment, markAppAppointmentDeleted,
-    applyAppBarber, deactivateAppBarber, importBookingsForLinkedBarber, syncBusy,
+    applyAppBarber, deactivateAppBarber, importBookingsForLinkedBarber, pushScheduleToApp, syncBusy,
 } from '@/lib/barberkeylut';
 
 export const dynamic = 'force-dynamic';
@@ -40,11 +40,12 @@ export async function POST(request) {
     const db = getDb();
     const tenantId = cfg.tenantId;
     const entityId = payload.appointment?.id || payload.barber?.id || null;
+    const revision = Number(payload.appointment?.revision ?? payload.barber?.revision) || null;
     try {
         await ensureIntegrationTables(db);
         const claimed = await db.execute({
-            sql: `INSERT OR IGNORE INTO integration_events (delivery_id, source, event, entity_id, result) VALUES (?, 'barberkeylut', ?, ?, 'processing')`,
-            args: [deliveryId, payload.event, entityId],
+            sql: `INSERT OR IGNORE INTO integration_events (delivery_id, source, event, entity_id, revision, result) VALUES (?, 'barberkeylut', ?, ?, ?, 'processing')`,
+            args: [deliveryId, payload.event, entityId, revision],
         });
         if (claimed.rowsAffected === 0) return NextResponse.json({ ok: true, duplicate: true });
 
@@ -58,10 +59,13 @@ export async function POST(request) {
         }
         await db.execute({ sql: `UPDATE integration_events SET result = ? WHERE delivery_id = ?`, args: [outcome.result, deliveryId] });
 
-        // Seguimiento sin demorar la respuesta: reservas del barbero recién
-        // vinculado y colaciones en la ocupación si cambió su horario.
+        // Seguimiento sin demorar la respuesta: barbero recién vinculado (la
+        // app recibe el horario de ControlFe y se traen sus reservas) y
+        // colaciones en la ocupación si cambió su horario. Un barber.updated
+        // de un barbero ya vinculado nunca se responde con un PATCH.
         if (outcome.linkedNow || outcome.scheduleChanged) {
             after(async () => {
+                if (outcome.pushSchedule) await pushScheduleToApp({ tenantId, professionalId: outcome.professionalId, onLink: true });
                 if (outcome.linkedNow) await importBookingsForLinkedBarber({ tenantId });
                 await syncBusy({ tenantId, force: true });
             });

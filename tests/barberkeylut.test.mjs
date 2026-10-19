@@ -11,7 +11,7 @@ import { createClient } from '@libsql/client';
 import { SCHEMA_STATEMENTS } from '../src/lib/schema.js';
 import {
     verifySignature, resolveLocalStatus, scheduleToApp, phoneToE164, phoneFromE164, ensureIntegrationTables,
-    applyAppAppointment, markAppAppointmentDeleted, applyAppBarber, deactivateAppBarber,
+    applyAppAppointment, markAppAppointmentDeleted, applyAppBarber, deactivateAppBarber, pushScheduleToApp,
 } from '../src/lib/barberkeylut.js';
 
 const TENANT = 'tenant-keylut';
@@ -209,4 +209,64 @@ test('Barberos desde la app: crear, vincular invitado por email, horario sin per
 
     await deactivateAppBarber('uid-inv', { db, tenantId: TENANT });
     assert.equal((await db.execute(`SELECT active FROM professionals WHERE id = 'p-inv'`)).rows[0].active, 0);
+});
+
+test('Al vincular manda el horario de ControlFe; después, el último cambio manda', async () => {
+    const db = await createDb();
+    const scheduleOf = async (id) => (await db.execute({
+        sql: `SELECT day_of_week, start_time, end_time, break_start FROM schedules WHERE professional_id = ? AND active = 1 ORDER BY day_of_week`, args: [id],
+    })).rows.map((x) => [x.day_of_week, x.start_time, x.end_time, x.break_start]);
+    await db.execute({ sql: `INSERT INTO professionals (id, tenant_id, name, email, app_uses, app_link_status) VALUES ('p-jose', ?, 'jose', 'jose@x.cl', 1, 'invited')`, args: [TENANT] });
+    await db.execute(`INSERT INTO schedules (id, professional_id, day_of_week, start_time, end_time, break_start, break_end, active) VALUES ('h-jose', 'p-jose', 2, '09:00', '18:00', '12:00', '13:00', 1)`);
+    const appDefault = [1, 2, 3, 4, 5, 6, 7].map((day) => ({ day, start: '09:00', end: '20:00' }));
+
+    // Se registra en la app (invitado): queda vinculado sin tomar el horario por defecto.
+    let r = await applyAppBarber({ id: 'uid-jose', name: 'Jose Roa', email: 'jose@x.cl', active: true, schedule: appDefault, revision: 1 }, { db, tenantId: TENANT });
+    assert.equal(r.linkedNow, true);
+    assert.equal(r.pushSchedule, true, 'el horario de ControlFe se envía a la app');
+    assert.equal(r.scheduleChanged, false);
+    assert.deepEqual(await scheduleOf('p-jose'), [[2, '09:00', '18:00', '12:00']]);
+
+    // Ya vinculado: el cambio hecho en la app se aplica, sin PATCH de vuelta, y conserva la colación.
+    r = await applyAppBarber({ id: 'uid-jose', name: 'Jose Roa', email: 'jose@x.cl', active: true, schedule: [{ day: 2, start: '10:00', end: '19:00' }], revision: 2 }, { db, tenantId: TENANT });
+    assert.equal(r.pushSchedule, false);
+    assert.equal(r.scheduleChanged, true);
+    assert.deepEqual(await scheduleOf('p-jose'), [[2, '10:00', '19:00', '12:00']]);
+
+    // Sin horario en ControlFe: al vincular se toma el de la app.
+    await db.execute({ sql: `INSERT INTO professionals (id, tenant_id, name, email, app_uses, app_link_status) VALUES ('p-sin', ?, 'Sin Horario', 'sin@x.cl', 1, 'invited')`, args: [TENANT] });
+    r = await applyAppBarber({ id: 'uid-sin', name: 'Sin Horario', email: 'sin@x.cl', active: true, schedule: [{ day: 1, start: '09:00', end: '20:00' }], revision: 1 }, { db, tenantId: TENANT });
+    assert.equal(r.pushSchedule, false);
+    assert.deepEqual(await scheduleOf('p-sin'), [[1, '09:00', '20:00', null]]);
+});
+
+test('pushScheduleToApp: PATCH con el horario de ControlFe; al vincular sin horario no borra el de la app', async () => {
+    const db = await createDb();
+    const env = { ...process.env };
+    const realFetch = globalThis.fetch;
+    const calls = [];
+    Object.assign(process.env, {
+        BARBERKEYLUT_TENANT_ID: TENANT, BARBERKEYLUT_API_URL: 'https://app.test/v1',
+        BARBERKEYLUT_API_KEY: 'k', BARBERKEYLUT_WEBHOOK_SECRET: 's',
+    });
+    globalThis.fetch = async (url, init) => {
+        calls.push({ url, method: init.method, body: init.body ? JSON.parse(init.body) : null });
+        return new Response(JSON.stringify({ barber: { id: 'uid-pedro', revision: 9 } }), { status: 200 });
+    };
+    try {
+        await db.execute(`INSERT INTO schedules (id, professional_id, day_of_week, start_time, end_time, break_start, break_end, active) VALUES
+            ('h1', 'p-pedro', 0, '10:00', '14:00', NULL, NULL, 1), ('h2', 'p-pedro', 2, '09:00', '18:00', '12:00', '13:00', 1), ('h3', 'p-pedro', 3, '09:00', '18:00', NULL, NULL, 0)`);
+        assert.deepEqual(await pushScheduleToApp({ db, tenantId: TENANT, professionalId: 'p-pedro', onLink: true }), { result: 'sent', days: 2 });
+        assert.deepEqual(calls[0], {
+            url: 'https://app.test/v1/barbers/uid-pedro', method: 'PATCH',
+            body: { schedule: [{ day: 2, start: '09:00', end: '18:00' }, { day: 7, start: '10:00', end: '14:00' }] },
+        });
+        assert.deepEqual(await pushScheduleToApp({ db, tenantId: TENANT, professionalId: 'p-juan', onLink: true }), { result: 'empty' });
+        assert.equal(calls.length, 1, 'Juan no tiene horario: no se envía nada');
+        assert.deepEqual(await pushScheduleToApp({ db, tenantId: TENANT, professionalId: 'p-juan' }), { result: 'sent', days: 0 });
+        assert.deepEqual(calls[1].body, { schedule: [] }, 'cambio en Personal sin días: la app queda sin días');
+    } finally {
+        globalThis.fetch = realFetch;
+        for (const k of Object.keys(process.env)) if (!(k in env)) delete process.env[k];
+    }
 });

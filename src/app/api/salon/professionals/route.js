@@ -16,10 +16,12 @@ function parseAppUses(value, previous) {
     return value === true || value === 'true' || value === '1';
 }
 
-// Después de vincular un barbero: sus reservas pendientes en la app y la
-// ocupación (colaciones, citas, días libres).
-function afterLinked(tenantId) {
+// Después de vincular un barbero: la app recibe el horario de ControlFe, se
+// traen sus reservas pendientes y se envía la ocupación (colaciones, citas,
+// días libres).
+function afterLinked(tenantId, professionalId) {
     after(async () => {
+        await pushScheduleToApp({ tenantId, professionalId, onLink: true });
         await importBookingsForLinkedBarber({ tenantId });
         await syncBusy({ tenantId, force: true });
     });
@@ -165,7 +167,7 @@ export async function POST(request) {
         if (appEnabled) {
             await ensureIntegrationTables();
             app = await syncProfessionalToApp({ tenantId: user.tenantId, professionalId: id, previous: null, appUses, linkUid: body.app_link_uid || '' });
-            if (app?.linkedNow) afterLinked(user.tenantId);
+            if (app?.linkedNow) afterLinked(user.tenantId, id);
         }
 
         return NextResponse.json({ id, app }, { status: 201 });
@@ -245,7 +247,7 @@ export async function PUT(request) {
                 // Guardar el formulario completo revisa los datos de pago.
                 await execute(`UPDATE professionals SET needs_payment_setup = 0 WHERE id = ? AND tenant_id = ?`, [id, user.tenantId]);
                 app = await syncProfessionalToApp({ tenantId: user.tenantId, professionalId: id, previous, appUses, linkUid: body.app_link_uid || '' });
-                if (app?.linkedNow) afterLinked(user.tenantId);
+                if (app?.linkedNow) afterLinked(user.tenantId, id);
             }
         }
 
