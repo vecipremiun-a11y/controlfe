@@ -6,6 +6,7 @@ import {
     CheckCircle, AlertCircle, XCircle, PlayCircle, Eye, Scissors,
     Calendar, MapPin, MessageSquare, Edit2, Trash2, Check,
 } from 'lucide-react';
+import { alertDialog } from '@/lib/dialog';
 
 const HOUR_HEIGHT = 72; // px per hour
 const START_HOUR = 7;
@@ -144,9 +145,9 @@ export default function AgendaPage() {
                 loadData();
             } else {
                 const err = await res.json().catch(() => ({}));
-                alert(err.error || 'Error al crear la cita');
+                alertDialog({ title: 'No se pudo crear la cita', message: err.error || 'Inténtalo de nuevo.', tone: 'danger' });
             }
-        } catch (e) { console.error(e); alert('Error de conexión'); }
+        } catch (e) { console.error(e); alertDialog({ title: 'Error de conexión', message: 'Revisa tu conexión a internet e inténtalo de nuevo.', tone: 'danger' }); }
     }
 
     async function updateStatus(aptId, newStatus) {

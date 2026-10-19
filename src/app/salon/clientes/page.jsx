@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/store';
 import { Plus, Edit2, Trash2, Search, Phone, Mail, Calendar, Users } from 'lucide-react';
+import { confirmDialog } from '@/lib/dialog';
 
 export default function ClientesPage() {
     const { user, tenantCurrency } = useStore();
@@ -46,7 +47,7 @@ export default function ClientesPage() {
     }
 
     async function handleDelete(id) {
-        if (!confirm('¿Eliminar este cliente?')) return;
+        if (!(await confirmDialog({ title: 'Eliminar cliente', message: 'Se quitará de tu lista de clientes.', confirmText: 'Eliminar', tone: 'danger' }))) return;
         await fetch(`/api/salon/clients?id=${id}`, { method: 'DELETE' });
         loadClients();
     }

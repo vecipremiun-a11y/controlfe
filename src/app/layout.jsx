@@ -1,4 +1,5 @@
 import './globals.css';
+import AppFeedback from '@/components/AppFeedback';
 
 export const viewport = {
     width: 'device-width',
@@ -16,6 +17,7 @@ export default function RootLayout({ children }) {
         <html lang="es">
             <body>
                 {children}
+                <AppFeedback />
             </body>
         </html>
     );

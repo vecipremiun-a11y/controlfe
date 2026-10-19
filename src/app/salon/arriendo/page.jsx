@@ -7,6 +7,7 @@ import {
     Banknote, CreditCard, ArrowLeftRight,
     Coffee, UserX, RotateCcw,
 } from 'lucide-react';
+import { confirmDialog } from '@/lib/dialog';
 
 const FREQ_LABEL = { daily: 'día', weekly: 'semana', biweekly: 'quincena', monthly: 'mes' };
 
@@ -81,7 +82,7 @@ export default function ArriendoPage() {
         const set = mode !== 'add';
         const amount = mode === 'void' ? 0 : parseFloat(payAmount);
         if (mode !== 'void' && (!amount || amount <= 0)) return;
-        if (mode === 'void' && !confirm('¿Anular el pago de este día? El monto volverá a 0 y quedará como no pagado.')) return;
+        if (mode === 'void' && !(await confirmDialog({ title: 'Anular pago del día', message: 'El monto volverá a 0 y el día quedará como no pagado.', confirmText: 'Anular pago', tone: 'danger' }))) return;
         setSubmitting(true);
         try {
             const res = await fetch('/api/salon/chair-rent/payment', {
@@ -294,7 +295,7 @@ export default function ArriendoPage() {
                             <div className="pagos-personal__empty">
                                 <Armchair size={40} />
                                 <p>No hay personal en modo arriendo</p>
-                                <span>Clasifica al profesional como "Arriendo" en la sección Personal para que aparezca aquí.</span>
+                                <span>Clasifica al profesional como &quot;Arriendo&quot; en la sección Personal para que aparezca aquí.</span>
                             </div>
                         )}
                     </div>

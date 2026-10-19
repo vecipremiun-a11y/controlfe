@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/store';
 import { Plus, Edit2, Search, Users, ShieldCheck, Power, KeyRound } from 'lucide-react';
 import { ROLES, roleLabel } from '@/lib/permissions';
+import { confirmDialog } from '@/lib/dialog';
 
 const EMPTY_FORM = { name: '', email: '', phone: '', role: 'vendedor', password: '', active: true };
 
@@ -78,7 +79,7 @@ export default function UsuariosPage() {
         // Reactivar usa PUT; desactivar usa DELETE (borrado lógico)
         try {
             if (u.active === 1) {
-                if (!confirm(`¿Desactivar a ${u.name}? No podrá iniciar sesión.`)) return;
+                if (!(await confirmDialog({ title: 'Desactivar usuario', message: `${u.name} no podrá iniciar sesión hasta que lo reactives.`, confirmText: 'Desactivar', tone: 'danger' }))) return;
                 const res = await fetch(`/api/salon/users?id=${u.id}`, { method: 'DELETE' });
                 const data = await res.json().catch(() => ({}));
                 if (res.ok) { addToast?.({ type: 'success', message: 'Usuario desactivado' }); loadUsers(); }

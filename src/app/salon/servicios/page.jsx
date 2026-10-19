@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/store';
 import { Plus, Edit2, Trash2, Search, Clock, DollarSign, Scissors } from 'lucide-react';
+import { confirmDialog } from '@/lib/dialog';
 
 export default function ServiciosPage() {
     const { user, tenantCurrency } = useStore();
@@ -75,7 +76,7 @@ export default function ServiciosPage() {
     }
 
     async function handleDelete(id) {
-        if (!confirm('¿Estás seguro de eliminar este servicio?')) return;
+        if (!(await confirmDialog({ title: 'Eliminar servicio', message: 'Dejará de estar disponible para agendar y cobrar.', confirmText: 'Eliminar', tone: 'danger' }))) return;
         try {
             await fetch(`/api/salon/services?id=${id}`, { method: 'DELETE' });
             loadServices();

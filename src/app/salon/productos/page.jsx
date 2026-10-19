@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/store';
 import { Plus, Edit2, Trash2, Search, Package, AlertTriangle } from 'lucide-react';
+import { confirmDialog } from '@/lib/dialog';
 
 export default function ProductosPage() {
     const { user, tenantCurrency } = useStore();
@@ -66,7 +67,7 @@ export default function ProductosPage() {
     }
 
     async function handleDelete(id) {
-        if (!confirm('¿Eliminar?')) return;
+        if (!(await confirmDialog({ title: 'Eliminar producto', message: 'Se quitará del inventario y del punto de venta.', confirmText: 'Eliminar', tone: 'danger' }))) return;
         await fetch(`/api/salon/products?id=${id}`, { method: 'DELETE' });
         loadData();
     }

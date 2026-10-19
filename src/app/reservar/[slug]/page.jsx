@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import { alertDialog } from '@/lib/dialog';
 
 const STEPS = ['service', 'professional', 'datetime', 'confirm'];
 const STEP_LABELS = ['Servicio', 'Profesional', 'Día y Hora', 'Confirmar'];
@@ -110,9 +111,9 @@ export default function BookingPage() {
             if (res.ok) {
                 setBooked(data);
             } else {
-                alert(data.error || 'Error al reservar');
+                alertDialog({ title: 'No se pudo reservar', message: data.error || 'Inténtalo de nuevo.', tone: 'danger' });
             }
-        } catch { alert('Error de conexión'); }
+        } catch { alertDialog({ title: 'Error de conexión', message: 'Revisa tu conexión a internet e inténtalo de nuevo.', tone: 'danger' }); }
         finally { setSubmitting(false); }
     }
 

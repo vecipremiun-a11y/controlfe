@@ -50,7 +50,7 @@ export const useStore = create((set, get) => ({
     // Toast notifications
     toasts: [],
     addToast: (toast) => {
-        const id = Date.now();
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }));
         setTimeout(() => {
             set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));

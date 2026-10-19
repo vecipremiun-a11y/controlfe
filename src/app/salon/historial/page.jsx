@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useStore } from '@/lib/store';
 import { Search, Download, Send, RotateCcw, Ban, Calendar, User, FileText, Receipt } from 'lucide-react';
+import { confirmDialog, alertDialog } from '@/lib/dialog';
 
 const STATUS_META = {
     completed: { label: 'COMPLETADA', color: '#059669', bg: 'rgba(5,150,105,0.12)' },
@@ -77,8 +78,8 @@ export default function HistorialPage() {
     }, [selectedId]);
 
     async function doAction(action) {
-        const verb = action === 'refund' ? 'registrar la devolución de' : 'anular';
-        if (!confirm(`¿Seguro que deseas ${verb} la venta #${detail.folio}? Se repondrá el stock de los productos.`)) return;
+        const label = action === 'refund' ? 'Registrar devolución' : 'Anular venta';
+        if (!(await confirmDialog({ title: label, message: `Venta #${detail.folio}. Se repondrá el stock de los productos.`, confirmText: label, tone: 'danger' }))) return;
         setActing(true);
         try {
             const res = await fetch(`/api/salon/sales/${detail.id}`, {
@@ -91,9 +92,9 @@ export default function HistorialPage() {
                 setDetail({ ...detail, status: d.status });
                 setSales(sales.map(s => s.id === detail.id ? { ...s, status: d.status } : s));
             } else {
-                alert(d.error || 'No se pudo completar la acción');
+                alertDialog({ title: 'No se pudo completar la acción', message: d.error || 'Inténtalo de nuevo.', tone: 'danger' });
             }
-        } catch (e) { alert('Error de conexión'); }
+        } catch (e) { alertDialog({ title: 'Error de conexión', message: 'Revisa tu conexión a internet e inténtalo de nuevo.', tone: 'danger' }); }
         finally { setActing(false); }
     }
 

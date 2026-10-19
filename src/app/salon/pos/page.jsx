@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '@/lib/store';
 import { Plus, Minus, Trash2, Search, ShoppingCart, CreditCard, Banknote, Landmark, Coins, DollarSign, X } from 'lucide-react';
+import { alertDialog } from '@/lib/dialog';
 
 export default function POSPage() {
     const { user, tenantCurrency } = useStore();
@@ -110,18 +111,18 @@ export default function POSPage() {
                 setCashMode(false);
                 setCashReceived('');
                 setShowCartMobile(false);
-                alert('¡Venta completada!');
+                alertDialog({ title: '¡Venta completada!', message: 'La venta quedó registrada en tu caja.', confirmText: 'Continuar', tone: 'success' });
             } else {
                 const err = await res.json().catch(() => ({}));
                 // Sin caja abierta: avisar y recargar para mostrar el bloqueo de caja.
                 if (res.status === 409 && err.code === 'NO_REGISTER') {
-                    alert(err.error || 'Debes abrir una caja antes de vender');
+                    await alertDialog({ title: 'Caja cerrada', message: err.error || 'Debes abrir una caja antes de vender.', tone: 'warning' });
                     window.location.reload();
                     return;
                 }
-                alert(err.error || 'No se pudo completar la venta');
+                alertDialog({ title: 'No se pudo completar la venta', message: err.error || 'Inténtalo de nuevo.', tone: 'danger' });
             }
-        } catch (e) { console.error(e); alert('Error de conexión'); }
+        } catch (e) { console.error(e); alertDialog({ title: 'Error de conexión', message: 'Revisa tu conexión a internet e inténtalo de nuevo.', tone: 'danger' }); }
         finally { setCheckingOut(false); }
     }
 
