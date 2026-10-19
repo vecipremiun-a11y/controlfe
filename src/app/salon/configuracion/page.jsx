@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Building2, CreditCard, Printer, Palette, Link2, Save, CheckCircle, Upload, Trash2, Clock, Calendar, MessageSquare, Settings2 } from 'lucide-react';
+import { alertDialog } from '@/lib/dialog';
 
 const CURRENCIES = [
     { code: 'DOP', symbol: 'RD$', name: 'Peso Dominicano', country: '🇩🇴' },
@@ -156,7 +157,7 @@ export default function ConfiguracionPage() {
                 setLogoUrl(data.logo_url + '?t=' + Date.now());
             } else {
                 const err = await res.json();
-                alert(err.error || 'Error al subir logo');
+                alertDialog({ title: 'No se pudo subir el logo', message: err.error || 'Inténtalo de nuevo.', tone: 'danger' });
             }
         } catch (e) { console.error(e); }
         finally {
@@ -317,12 +318,12 @@ export default function ConfiguracionPage() {
                                             {
                                                 value: 'least_busy',
                                                 label: 'Menos cortes del día',
-                                                desc: 'Prioriza al profesional que menos servicios ha realizado hoy. Distribuye el trabajo equitativamente.',
+                                                desc: 'Prioriza al profesional que menos clientes ha atendido hoy (entre los que marcaron llegada). Distribuye el trabajo equitativamente.',
                                             },
                                             {
                                                 value: 'round_robin',
                                                 label: 'Por turno (orden de llegada)',
-                                                desc: 'Asigna al profesional que más tiempo lleva esperando desde su último servicio. Respeta el orden de turnos.',
+                                                desc: 'Cada barbero conserva su orden de llegada y todos atienden la misma cantidad por turno: le toca al libre que lleva menos turnos y, entre iguales, al que llegó primero. Si está ocupado atiende el siguiente libre, y el ocupado recupera su turno al terminar. Los clientes que piden a un barbero no consumen turno.',
                                             },
                                         ].map(opt => (
                                             <label

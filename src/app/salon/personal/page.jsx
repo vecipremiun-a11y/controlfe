@@ -7,6 +7,7 @@ import {
     Home, Percent, Wallet, Zap, CalendarOff, Check, AlertCircle, Camera,
     User, Scissors, CheckSquare, Square,
 } from 'lucide-react';
+import { confirmDialog, alertDialog } from '@/lib/dialog';
 
 const PAYMENT_MODES = [
     { value: 'commission', label: 'Comisión', icon: Percent, desc: 'El negocio se queda con % de cada servicio', color: '#8B5CF6' },
@@ -70,6 +71,7 @@ export default function PersonalPage() {
         rent_amount: '', rent_frequency: 'monthly',
         pay_frequency: 'daily', pay_day: '',
         access_role: 'own_agenda', country_code: '+56',
+        salon_collects: true,
     });
 
     useEffect(() => { loadData(); loadServices(); }, []);
@@ -98,6 +100,7 @@ export default function PersonalPage() {
             rent_amount: '', rent_frequency: 'monthly',
             pay_frequency: 'daily', pay_day: '',
             access_role: 'own_agenda', country_code: '+56',
+            salon_collects: true,
         });
         setAvatarPreview(null);
         setAvatarFile(null);
@@ -123,6 +126,7 @@ export default function PersonalPage() {
             pay_day: p.pay_day || '',
             access_role: p.access_role || 'own_agenda',
             country_code: p.country_code || '+56',
+            salon_collects: p.salon_collects !== 0,
         });
         setAvatarPreview(p.avatar_url || null);
         setAvatarFile(null);
@@ -160,7 +164,7 @@ export default function PersonalPage() {
     function handleAvatarChange(e) {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (file.size > 2 * 1024 * 1024) { alert('La imagen no debe superar 2MB'); return; }
+        if (file.size > 2 * 1024 * 1024) { alertDialog({ title: 'Imagen muy pesada', message: 'La foto no debe superar 2 MB. Elige una imagen más liviana.', tone: 'warning' }); return; }
         setAvatarFile(file);
         const reader = new FileReader();
         reader.onload = (ev) => setAvatarPreview(ev.target.result);
@@ -178,8 +182,8 @@ export default function PersonalPage() {
         try {
             const res = await fetch(url, { method, body: formData });
             if (res.ok) { setShowModal(false); loadData(); }
-            else { const err = await res.json().catch(() => ({})); alert(`Error: ${err.error || 'No se pudo guardar'}`); }
-        } catch (e) { console.error(e); alert('Error de conexión'); }
+            else { const err = await res.json().catch(() => ({})); alertDialog({ title: 'No se pudo guardar', message: err.error || 'Inténtalo de nuevo.', tone: 'danger' }); }
+        } catch (e) { console.error(e); alertDialog({ title: 'Error de conexión', message: 'Revisa tu conexión a internet e inténtalo de nuevo.', tone: 'danger' }); }
     }
 
     async function handleSaveSchedule() {
@@ -215,7 +219,7 @@ export default function PersonalPage() {
     }
 
     async function handleDelete(id) {
-        if (!confirm('¿Eliminar este profesional?')) return;
+        if (!(await confirmDialog({ title: 'Eliminar profesional', message: 'Dejará de aparecer en el sistema. Su historial de ventas se conserva.', confirmText: 'Eliminar', tone: 'danger' }))) return;
         await fetch(`/api/salon/professionals?id=${id}`, { method: 'DELETE' });
         loadData();
     }
@@ -294,6 +298,16 @@ export default function PersonalPage() {
                                         <Shield size={12} />
                                         {ACCESS_ROLES.find(r => r.value === (p.access_role || 'own_agenda'))?.label}
                                     </span>
+                                    {p.salon_collects === 0 && (
+                                        <span title="El profesional cobra sus servicios por su cuenta; solo se lleva su orden de atención" style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                            padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600,
+                                            background: 'var(--gray-100)', color: 'var(--text-secondary)',
+                                        }}>
+                                            <Wallet size={12} />
+                                            Cobra por su cuenta
+                                        </span>
+                                    )}
                                 </div>
 
                                 {(p.services || []).length > 0 && (
@@ -649,6 +663,26 @@ export default function PersonalPage() {
                                                 </div>
                                             </div>
                                         )}
+
+                                        {/* Cobro de sus servicios en Barbershop */}
+                                        <label style={{
+                                            display: 'flex', alignItems: 'flex-start', gap: '12px', marginTop: '16px',
+                                            padding: '14px 16px', borderRadius: '12px', cursor: 'pointer', transition: 'all 150ms',
+                                            border: `2px solid ${form.salon_collects ? 'var(--primary-500)' : 'var(--border-color)'}`,
+                                            background: form.salon_collects ? 'var(--primary-50)' : 'white',
+                                        }}>
+                                            <input type="checkbox" checked={form.salon_collects}
+                                                onChange={e => setForm({ ...form, salon_collects: e.target.checked })}
+                                                style={{ width: '18px', height: '18px', marginTop: '2px', accentColor: 'var(--primary-500)', flexShrink: 0 }} />
+                                            <div>
+                                                <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>El salón cobra sus servicios</div>
+                                                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px', lineHeight: 1.4 }}>
+                                                    {form.salon_collects
+                                                        ? 'Sus servicios se cobran en caja: en Barbershop aparece "Enviar a Cobro" y quedan registrados en ventas.'
+                                                        : 'El profesional cobra sus servicios por su cuenta. Solo se lleva su orden de atención: en Barbershop el botón será "Finalizar servicio".'}
+                                                </div>
+                                            </div>
+                                        </label>
 
                                         {/* Pay frequency */}
                                         <div className="form-group" style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>

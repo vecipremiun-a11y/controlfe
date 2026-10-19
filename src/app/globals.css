@@ -1153,44 +1153,263 @@ a:hover {
 
 .toast-container {
   position: fixed;
-  top: 20px;
+  /* Debajo del encabezado para no tapar el usuario */
+  top: 76px;
   right: 20px;
-  z-index: 200;
+  z-index: 1100;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
 .toast {
+  --toast-tone: var(--primary-600);
   background: var(--bg-card);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  padding: 14px 20px;
+  border-radius: 14px;
+  box-shadow: 0 12px 28px -10px rgba(17, 24, 39, 0.28), 0 2px 6px rgba(17, 24, 39, 0.06);
+  padding: 12px 12px 12px 16px;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 10px;
   min-width: 300px;
   max-width: 420px;
-  animation: slideInRight 300ms ease-out;
-  border-left: 4px solid var(--primary-500);
+  animation: slideInRight 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  border-left: 4px solid var(--toast-tone);
 }
 
 .toast--success {
-  border-left-color: var(--accent-green);
+  --toast-tone: #059669;
 }
 
 .toast--error {
-  border-left-color: var(--accent-red);
+  --toast-tone: #DC2626;
 }
 
 .toast--warning {
-  border-left-color: var(--accent-orange);
+  --toast-tone: #D97706;
+}
+
+.toast__icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--toast-tone);
 }
 
 .toast__message {
   font-size: 14px;
   font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-primary);
   flex: 1;
+}
+
+.toast__close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gray-400);
+  cursor: pointer;
+}
+
+.toast__close:hover {
+  background: var(--gray-100);
+  color: var(--gray-700);
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ==============================
+   APP DIALOG (confirmaciones y avisos del sistema)
+   ============================== */
+
+.app-dialog__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(17, 24, 39, 0.5);
+  backdrop-filter: blur(4px);
+  animation: appDialogFade 150ms ease-out;
+}
+
+.app-dialog {
+  --tone: var(--primary-600);
+  --tone-soft: var(--primary-50);
+  --tone-ring: rgba(124, 58, 237, 0.1);
+  width: 100%;
+  max-width: 420px;
+  background: #FFFFFF;
+  border-radius: 20px;
+  box-shadow: 0 28px 56px -16px rgba(17, 24, 39, 0.45);
+  overflow: hidden;
+  animation: appDialogIn 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.app-dialog--danger {
+  --tone: #DC2626;
+  --tone-soft: #FEF2F2;
+  --tone-ring: rgba(220, 38, 38, 0.08);
+}
+
+.app-dialog--warning {
+  --tone: #D97706;
+  --tone-soft: #FFFBEB;
+  --tone-ring: rgba(217, 119, 6, 0.1);
+}
+
+.app-dialog--success {
+  --tone: #059669;
+  --tone-soft: #ECFDF5;
+  --tone-ring: rgba(5, 150, 105, 0.1);
+}
+
+/* Franja tipo poste de barbería, en el color del aviso */
+.app-dialog__stripe {
+  height: 8px;
+  background: repeating-linear-gradient(-45deg,
+      var(--tone) 0 12px,
+      #FFFFFF 12px 17px,
+      #1E293B 17px 29px,
+      #FFFFFF 29px 34px);
+}
+
+.app-dialog__body {
+  padding: 28px 28px 4px;
+  text-align: center;
+}
+
+.app-dialog__icon {
+  width: 60px;
+  height: 60px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tone);
+  background: var(--tone-soft);
+  box-shadow: 0 0 0 8px var(--tone-ring);
+}
+
+.app-dialog__title {
+  margin: 0 0 8px;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.app-dialog__message {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-line;
+}
+
+.app-dialog__actions {
+  display: flex;
+  gap: 10px;
+  padding: 24px 28px 26px;
+}
+
+.app-dialog__btn {
+  flex: 1;
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 150ms ease, box-shadow 150ms ease, transform 100ms ease, filter 150ms ease;
+}
+
+.app-dialog__btn:active {
+  transform: translateY(1px);
+}
+
+.app-dialog__btn:focus-visible {
+  outline: 3px solid var(--tone-soft);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--tone);
+}
+
+.app-dialog__btn--cancel {
+  background: #FFFFFF;
+  border: 1px solid var(--gray-200);
+  color: var(--gray-700);
+}
+
+.app-dialog__btn--cancel:hover {
+  background: var(--gray-50);
+  border-color: var(--gray-300);
+}
+
+.app-dialog__btn--confirm {
+  border: none;
+  background: var(--tone);
+  color: #FFFFFF;
+  box-shadow: 0 8px 18px -8px var(--tone);
+}
+
+.app-dialog__btn--confirm:hover {
+  filter: brightness(1.08);
+}
+
+@keyframes appDialogFade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes appDialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 380px) {
+  .app-dialog__actions {
+    flex-direction: column-reverse;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-dialog__overlay,
+  .app-dialog,
+  .toast {
+    animation: none;
+  }
 }
 
 /* ==============================
@@ -2572,8 +2791,8 @@ a:hover {
 
 /* Available state */
 .barbershop__station-card--available {
-  border-color: rgba(16, 185, 129, 0.2);
-  background: rgba(16, 185, 129, 0.04);
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.08);
 }
 
 .barbershop__station-card--available::before {
@@ -2581,9 +2800,21 @@ a:hover {
   box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
 }
 
-/* Busy state */
+/* Barbero al que le toca el próximo cliente: verde más marcado */
+.barbershop__station-card--next {
+  border: 2px solid #10B981;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.12);
+}
+
+/* Busy state: naranja, para distinguirlo de un vistazo de los libres */
+.barbershop__station-card--busy,
+.barbershop__station-card--busy_with_queue {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.09);
+}
+
 .barbershop__station-card--busy::before {
-  background: linear-gradient(90deg, #3B82F6, #6C5CE7);
+  background: linear-gradient(90deg, #F59E0B, #EA580C);
 }
 
 /* Busy with queue */
@@ -2657,11 +2888,11 @@ a:hover {
 }
 
 .barbershop__station-status--busy {
-  color: #3B82F6;
+  color: #D97706;
 }
 
 .barbershop__station-status--busy_with_queue {
-  color: #f59e0b;
+  color: #EA580C;
 }
 
 /* Assign button */
@@ -2733,9 +2964,9 @@ a:hover {
 .barbershop__progress-fill {
   height: 100%;
   border-radius: 6px;
-  background: linear-gradient(90deg, #3B82F6, #6C5CE7);
+  background: linear-gradient(90deg, #F59E0B, #EA580C);
   transition: width 1s linear;
-  box-shadow: 0 0 10px rgba(68, 136, 255, 0.5);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.45);
   position: relative;
 }
 
@@ -2805,6 +3036,426 @@ a:hover {
 .barbershop__checkout-btn:hover {
   background: rgba(139, 92, 246, 0.15);
   border-color: rgba(139, 92, 246, 0.35);
+}
+
+/* Barbero que cobra por su cuenta: finaliza la atención sin pasar por caja */
+.barbershop__checkout-btn--finish {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.1);
+  color: #047857;
+}
+
+.barbershop__checkout-btn--finish:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.barbershop__checkout-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ======== FILA DE TURNOS ======== */
+
+.barbershop__turns {
+  border: 1px solid #E5E7EB;
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  background: #FAFAFF;
+}
+
+.barbershop__turns-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.barbershop__turns-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.barbershop__turns-log-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 8px;
+  background: #FFFFFF;
+  color: #7C3AED;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.barbershop__turns-log-btn:hover {
+  background: rgba(139, 92, 246, 0.08);
+}
+
+.barbershop__turns-empty {
+  font-size: 13px;
+  color: #6B7280;
+  margin: 0;
+}
+
+.barbershop__turns-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.barbershop__turn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 5px;
+  border-radius: 999px;
+  border: 1px solid #E5E7EB;
+  background: #FFFFFF;
+  font-size: 12px;
+  color: #374151;
+  max-width: 100%;
+}
+
+.barbershop__turn-pos {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #F3F4F6;
+  color: #374151;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.barbershop__turn-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.barbershop__turn-state {
+  color: #6B7280;
+  white-space: nowrap;
+}
+
+.barbershop__turn-chip--next {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.barbershop__turn-chip--next .barbershop__turn-pos {
+  background: #10B981;
+  color: #FFFFFF;
+}
+
+.barbershop__turn-chip--next .barbershop__turn-state {
+  color: #059669;
+  font-weight: 700;
+}
+
+.barbershop__turn-chip--ocupado {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.barbershop__turn-chip--ocupado .barbershop__turn-pos {
+  background: rgba(245, 158, 11, 0.2);
+  color: #B45309;
+}
+
+.barbershop__turn-chip--reservado .barbershop__turn-pos,
+.barbershop__turn-chip--pending .barbershop__turn-pos {
+  background: rgba(245, 158, 11, 0.18);
+  color: #B45309;
+}
+
+.barbershop__turn-chip--pending {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.barbershop__turn-chip--pending .barbershop__turn-state {
+  color: #B45309;
+  font-weight: 600;
+}
+
+/* Franja de turno dentro de la tarjeta de la estación */
+.barbershop__station-turnbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: -6px 0 12px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: #F9FAFB;
+  border: 1px solid #F3F4F6;
+  font-size: 12px;
+}
+
+.barbershop__station-turn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #E5E7EB;
+  color: #374151;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.barbershop__station-turnbar-state {
+  font-weight: 700;
+  color: #374151;
+}
+
+.barbershop__station-turnbar-meta {
+  color: #9CA3AF;
+  font-size: 11px;
+}
+
+.barbershop__station-turnbar--next {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.barbershop__station-turnbar--next .barbershop__station-turn {
+  background: #10B981;
+  color: #FFFFFF;
+}
+
+.barbershop__station-turnbar--next .barbershop__station-turnbar-state {
+  color: #059669;
+}
+
+.barbershop__station-turnbar--pending {
+  background: rgba(245, 158, 11, 0.07);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.barbershop__station-turnbar--pending .barbershop__station-turn {
+  background: rgba(245, 158, 11, 0.2);
+  color: #B45309;
+}
+
+.barbershop__station-turnbar--pending .barbershop__station-turnbar-state {
+  color: #B45309;
+}
+
+.barbershop__assign-btn--next {
+  border-color: rgba(16, 185, 129, 0.6);
+  background: rgba(16, 185, 129, 0.14);
+}
+
+.barbershop__arrive-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px;
+  border: 2px dashed #D1D5DB;
+  border-radius: 12px;
+  background: #FFFFFF;
+  color: #4B5563;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: all 200ms ease;
+}
+
+.barbershop__arrive-btn:hover:not(:disabled) {
+  border-color: #8B5CF6;
+  color: #7C3AED;
+  background: rgba(139, 92, 246, 0.05);
+}
+
+.barbershop__arrive-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* La tarjeta sin llegada se ve atenuada, pero su botón debe verse activo */
+.barbershop__station-card--unavailable:has(.barbershop__arrive-btn) {
+  opacity: 0.9;
+}
+
+.barbershop__station-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.barbershop__undo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  margin-top: 4px;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.06);
+  color: #DC2626;
+  cursor: pointer;
+}
+
+.barbershop__undo-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.barbershop__undo-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.barbershop__waiting-wants {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #B45309;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.checkin-modal__turn-hint {
+  font-size: 12px;
+  color: #6B7280;
+  background: #F9FAFB;
+  border: 1px solid #E5E7EB;
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 0 0 16px;
+  text-align: center;
+}
+
+/* Registro de turnos */
+.barbershop__turnlog {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.barbershop__turnlog-item {
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #FFFFFF;
+}
+
+.barbershop__turnlog-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.barbershop__turnlog-time {
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+  font-variant-numeric: tabular-nums;
+}
+
+.barbershop__turnlog-event {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #F3F4F6;
+  color: #4B5563;
+}
+
+.barbershop__turnlog-event--turno,
+.barbershop__turnlog-event--llegada,
+.barbershop__turnlog-event--regreso {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+}
+
+.barbershop__turnlog-event--pedido,
+.barbershop__turnlog-event--reserva,
+.barbershop__turnlog-event--desempate {
+  background: rgba(245, 158, 11, 0.14);
+  color: #B45309;
+}
+
+.barbershop__turnlog-event--fuera_de_turno,
+.barbershop__turnlog-event--anulado,
+.barbershop__turnlog-event--salida {
+  background: rgba(239, 68, 68, 0.1);
+  color: #B91C1C;
+}
+
+.barbershop__turnlog-event--fin {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1D4ED8;
+}
+
+.barbershop__turnlog-who {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1F2937;
+}
+
+.barbershop__turnlog-reason {
+  font-size: 13px;
+  color: #4B5563;
+  margin: 0 0 6px;
+  line-height: 1.45;
+}
+
+.barbershop__turnlog-queue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.barbershop__turnlog-q {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: #F3F4F6;
+  color: #4B5563;
+}
+
+.barbershop__turnlog-q--next {
+  background: rgba(16, 185, 129, 0.15);
+  color: #047857;
+  font-weight: 700;
 }
 
 /* ======== CHECKOUT COLUMN ======== */

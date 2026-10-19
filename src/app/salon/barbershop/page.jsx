@@ -35,7 +35,55 @@ import {
     CalendarCheck,
     Landmark,
     Coins,
+    ListOrdered,
+    History,
+    LogIn,
+    LogOut,
+    Undo2,
+    CircleCheck,
 } from 'lucide-react';
+import { confirmDialog } from '@/lib/dialog';
+
+// Hora local de Chile para mostrar llegadas y eventos de la fila.
+const fmtClock = (iso) => (iso
+    ? new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'America/Santiago' })
+    : '');
+
+const TURN_EVENT_LABELS = {
+    llegada: 'Llegada',
+    regreso: 'Regreso',
+    salida: 'Salida',
+    turno: 'Por turno',
+    fuera_de_turno: 'Fuera de turno',
+    pedido: 'Cliente lo pidió',
+    reserva: 'Reserva',
+    fin: 'Terminó',
+    anulado: 'Anulado',
+    desempate: 'Desempate',
+};
+
+const TURN_KIND_LABELS = {
+    turno: 'por turno',
+    fuera_de_turno: 'fuera de turno',
+    pedido: 'lo pidió',
+    reserva: 'reserva',
+};
+
+// Texto del estado de un barbero en la fila de turnos.
+const turnStateLabel = (e) => {
+    if (e.is_next) return 'Le toca';
+    if (e.state === 'ocupado') return e.pending ? 'Prioridad pendiente' : 'Ocupado';
+    if (e.state === 'reservado') return 'Espera a su cliente';
+    return 'Libre';
+};
+
+// "Corte + Barba + Lavado" a partir del servicio principal y los adicionales en notes.
+const fullServiceName = (appt) => {
+    if (!appt) return '';
+    let extras = [];
+    try { extras = JSON.parse(appt.notes || '{}')?.extra_services || []; } catch { /* notes de texto */ }
+    return [appt.service_name || 'Servicio', ...extras.map((s) => s.name)].join(' + ');
+};
 
 export default function BarbershopDashboard() {
     const { user, addToast, tenantCurrency } = useStore();
@@ -94,6 +142,12 @@ export default function BarbershopDashboard() {
     const [advanceNotes, setAdvanceNotes] = useState('');
     const [submittingAdvance, setSubmittingAdvance] = useState(false);
 
+    // Fila de turnos: acción en curso (evita dobles clics) y registro del día
+    const [turnBusy, setTurnBusy] = useState(false);
+    const turnBusyRef = useRef(false);
+    const [showTurnLog, setShowTurnLog] = useState(false);
+    const [turnLog, setTurnLog] = useState(null);
+
     const loadData = useCallback(async () => {
         try {
             const res = await fetch('/api/salon/barbershop-dashboard', { cache: 'no-store' });
@@ -147,7 +201,7 @@ export default function BarbershopDashboard() {
         const startDate = new Date();
         startDate.setHours(h, m, 0, 0);
         const startMs = startDate.getTime();
-        const durationMin = appointment.duration_min || 30;
+        const durationMin = appointment.total_duration_min || appointment.duration_min || 30;
         const durationMs = durationMin * 60 * 1000;
         const elapsedMs = Math.max(0, now - startMs);
         const percent = Math.min(100, Math.max(0, Math.round((elapsedMs / durationMs) * 100)));
@@ -160,139 +214,109 @@ export default function BarbershopDashboard() {
         };
     };
 
-    // Smart auto-assign: pick the best available professional based on assign mode
-    const pickBestAvailable = () => {
-        if (!data) return null;
-        const available = data.professionals.filter(p => p.status === 'available');
-        if (available.length === 0) return null;
-
-        const mode = data.assignMode || 'least_busy';
-
-        if (mode === 'round_robin') {
-            // Round robin: pick the one who finished longest ago (or never worked today)
-            return available.sort((a, b) => {
-                const aLast = a.lastServiceAt || '1970-01-01';
-                const bLast = b.lastServiceAt || '1970-01-01';
-                return aLast.localeCompare(bLast); // earliest last service first
-            })[0];
-        }
-
-        // Default: least_busy — pick the one with fewest services today
-        return available.sort((a, b) => {
-            const diff = (a.servicesToday || 0) - (b.servicesToday || 0);
-            if (diff !== 0) return diff; // fewer services first
-            // Tie-break: longest time since last service
-            const aLast = a.lastServiceAt || '1970-01-01';
-            const bLast = b.lastServiceAt || '1970-01-01';
-            return aLast.localeCompare(bLast);
-        })[0];
+    // ---- Fila de turnos (fila dinámica con prioridad pendiente) ----
+    // La asignación se decide en el servidor, en una transacción: /api/salon/turns.
+    const turnAction = async (payload) => {
+        const res = await fetch('/api/salon/turns', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const json = await res.json().catch(() => ({}));
+        return { ok: res.ok, json };
     };
 
-    const handleAutoAssign = async () => {
-        if (!data) return;
-        const firstWaiting = data.waitingCustomers[0];
-        const bestProfessional = pickBestAvailable();
-
-        if (!firstWaiting) {
-            addToast({ type: 'warning', message: 'No hay clientes en espera' });
-            return;
-        }
-        if (!bestProfessional) {
-            addToast({ type: 'warning', message: 'No hay barberos disponibles' });
-            return;
-        }
-
+    // Ejecuta una acción de la fila evitando dobles clics; refresca al terminar.
+    const runTurnAction = async (payload, onSuccess) => {
+        if (turnBusyRef.current) return null;
+        turnBusyRef.current = true;
+        setTurnBusy(true);
         try {
-            const res = await fetch('/api/salon/appointments', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    professional_id: bestProfessional.id,
-                    service_id: firstWaiting.service_id,
-                    client_name: firstWaiting.client_name,
-                    date: new Date().toISOString().split('T')[0],
-                    start_time: new Date().toTimeString().slice(0, 5),
-                    status: 'en_atencion',
-                    source: 'walk_in',
-                    notes: firstWaiting.notes || null,
-                }),
-            });
-            if (res.ok) {
-                const delRes = await fetch(`/api/salon/waitlist?id=${firstWaiting.id}&reason=booked`, { method: 'DELETE' });
-                if (!delRes.ok) {
-                    console.error('Failed to delete from waitlist:', await delRes.text());
-                }
-                addToast({ type: 'success', message: `${firstWaiting.client_name} asignado a ${bestProfessional.name}` });
-                loadData();
-            } else {
-                const err = await res.json();
-                addToast({ type: 'error', message: err.error || 'Error al crear cita' });
-            }
-        } catch (e) {
-            console.error(e);
-            addToast({ type: 'error', message: 'Error al asignar' });
-        }
-    };
-
-    const handleAssignNext = async (professionalId) => {
-        if (!data) return;
-        const firstWaiting = data.waitingCustomers[0];
-        const prof = data.professionals.find(p => p.id === professionalId);
-
-        if (!firstWaiting) {
-            addToast({ type: 'warning', message: 'No hay clientes en espera' });
-            return;
-        }
-
-        try {
-            const res = await fetch('/api/salon/appointments', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    professional_id: professionalId,
-                    service_id: firstWaiting.service_id,
-                    client_name: firstWaiting.client_name,
-                    date: new Date().toISOString().split('T')[0],
-                    start_time: new Date().toTimeString().slice(0, 5),
-                    status: 'en_atencion',
-                    source: 'walk_in',
-                    notes: firstWaiting.notes || null,
-                }),
-            });
-            if (res.ok) {
-                // Remove from waitlist
-                const delRes = await fetch(`/api/salon/waitlist?id=${firstWaiting.id}&reason=booked`, { method: 'DELETE' });
-                if (!delRes.ok) {
-                    console.error('Failed to delete from waitlist:', await delRes.text());
-                }
-                addToast({ type: 'success', message: `${firstWaiting.client_name} asignado a ${prof?.name}` });
-                loadData();
-            } else {
-                const err = await res.json();
-                addToast({ type: 'error', message: err.error || 'Error al crear cita' });
-            }
-        } catch (e) {
-            console.error(e);
-            addToast({ type: 'error', message: 'Error al asignar' });
-        }
-    };
-
-    const handleToggleAvailability = async (profId, currentIsAvailable) => {
-        try {
-            const res = await fetch('/api/salon/professionals/availability', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: profId, is_available: !currentIsAvailable })
-            });
-            if (res.ok) {
-                addToast({ type: 'success', message: 'Disponibilidad actualizada' });
-                loadData();
-            } else {
-                addToast({ type: 'error', message: 'Error al cambiar disponibilidad' });
-            }
+            const { ok, json } = await turnAction(payload);
+            if (ok) onSuccess?.(json);
+            else if (json.code !== 'OUT_OF_TURN') addToast({ type: 'warning', message: json.error || 'No se pudo completar la acción' });
+            loadData();
+            return { ok, json };
         } catch (e) {
             console.error(e);
             addToast({ type: 'error', message: 'Error de conexión' });
+            return null;
+        } finally {
+            turnBusyRef.current = false;
+            setTurnBusy(false);
+        }
+    };
+
+    const assignedToast = (json) => addToast({
+        type: 'success',
+        message: `${json.client} asignado a ${json.professional.name}${json.kind === 'pedido' ? ' (lo pidió)' : ''}`,
+    });
+
+    // Auto-Asignar: el primer cliente en espera va con el barbero que le toca.
+    const handleAutoAssign = () => runTurnAction({ action: 'assign' }, assignedToast);
+
+    // Botón de la estación. Si no es su turno, pide confirmación: contará como su turno.
+    const handleAssignNext = async (professionalId) => {
+        const result = await runTurnAction({ action: 'assign', professional_id: professionalId }, assignedToast);
+        if (result?.json?.code === 'OUT_OF_TURN' && await confirmDialog({ title: 'No es su turno', message: result.json.error, confirmText: 'Asignar igual', tone: 'warning' })) {
+            await runTurnAction({ action: 'assign', professional_id: professionalId, force: true }, assignedToast);
+        }
+    };
+
+    // Botón de encendido: marca llegada (entra al final de la fila) o salida.
+    const handleShiftToggle = async (prof) => {
+        if (prof.shiftState === 'active') {
+            if (!(await confirmDialog({ title: `Marcar salida de ${prof.name}`, message: 'Deja la fila de turnos. Si vuelve, entra al final.', confirmText: 'Marcar salida', tone: 'warning', icon: LogOut }))) return;
+            return runTurnAction({ action: 'leave', professional_id: prof.id },
+                () => addToast({ type: 'info', message: `${prof.name} salió de la fila` }));
+        }
+        return runTurnAction({ action: 'arrive', professional_id: prof.id },
+            (json) => addToast({ type: 'success', message: `${prof.name} ${json.event === 'regreso' ? 'volvió' : 'llegó'}: posición #${json.position}` }));
+    };
+
+    // Anula una asignación hecha por error: el cliente vuelve a la sala y el barbero a su lugar.
+    const handleUndoAssignment = async (prof) => {
+        const appt = prof.currentAppointment;
+        if (!appt) return;
+        if (!(await confirmDialog({ title: 'Anular asignación', message: `Úsalo si fue un error: se cancela el servicio de ${appt.client_name || 'este cliente'} y ${prof.name} recupera su lugar en la fila.`, confirmText: 'Anular', tone: 'danger', icon: Undo2 }))) return;
+        return runTurnAction({ action: 'undo', appointment_id: appt.id },
+            () => addToast({ type: 'info', message: 'Asignación anulada' }));
+    };
+
+    // Barbero que cobra por su cuenta: termina el servicio sin pasar por caja.
+    // La cita queda terminada y el barbero vuelve a estar disponible en la fila.
+    const handleFinishService = async (prof) => {
+        const appt = prof.currentAppointment;
+        if (!appt || turnBusyRef.current) return;
+        turnBusyRef.current = true;
+        setTurnBusy(true);
+        try {
+            const res = await fetch(`/api/salon/appointments?id=${appt.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'terminado' }),
+            });
+            if (res.ok) addToast({ type: 'success', message: `Servicio finalizado: ${prof.name} queda disponible` });
+            else addToast({ type: 'error', message: 'No se pudo finalizar el servicio' });
+            loadData();
+        } catch (e) {
+            console.error(e);
+            addToast({ type: 'error', message: 'Error de conexión' });
+        } finally {
+            turnBusyRef.current = false;
+            setTurnBusy(false);
+        }
+    };
+
+    const openTurnLog = async () => {
+        setShowTurnLog(true);
+        setTurnLog(null);
+        try {
+            const res = await fetch('/api/salon/turns?log=1', { cache: 'no-store' });
+            const json = await res.json();
+            setTurnLog(res.ok ? json.log || [] : []);
+        } catch {
+            setTurnLog([]);
         }
     };
 
@@ -701,52 +725,28 @@ export default function BarbershopDashboard() {
             const extraServices = checkinSelectedServices.slice(1);
             const notesObj = extraServices.length > 0 ? JSON.stringify({ extra_services: extraServices }) : null;
 
-            const isFirstAvailable = checkinSelectedBarber === 'first_available';
-            let assignDirectly = false;
-            let profStatus = 'available';
-
-            if (!isFirstAvailable && data?.professionals) {
-                const prof = data.professionals.find(p => p.id === checkinSelectedBarber);
-                if (prof) {
-                    assignDirectly = true;
-                    profStatus = prof.status; // 'available', 'busy', 'busy_with_queue'
-                }
-            }
-
-            if (assignDirectly) {
-                // Create appointment directly
-                const status = profStatus === 'available' ? 'en_atencion' : 'reservado';
-                const timeStr = new Date().toTimeString().slice(0, 5);
-                const dateStr = new Date().toISOString().split('T')[0];
-
-                const totalDuration = checkinSelectedServices.reduce((sum, s) => sum + (s.duration_min || 0), 0);
-
-                const res = await fetch('/api/salon/appointments', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        client_name: clientName,
-                        client_phone: checkinSelectedClient?.phone || checkinClientPhone || null,
-                        client_id: checkinSelectedClient?.id || null,
-                        service_id: primaryService.id,
-                        professional_id: checkinSelectedBarber,
-                        date: dateStr,
-                        start_time: timeStr,
-                        end_time: null, // Let backend calculate or we can send it
-                        status: status,
-                        source: 'manual',
-                        notes: notesObj
-                    }),
+            if (checkinSelectedBarber !== 'first_available') {
+                // El cliente pidió a un barbero: no consume turno. Si está libre lo
+                // atiende ya; si no, espera en la sala marcado para él.
+                const { ok, json } = await turnAction({
+                    action: 'request',
+                    professional_id: checkinSelectedBarber,
+                    client_name: clientName,
+                    client_phone: checkinSelectedClient?.phone || checkinClientPhone || null,
+                    client_id: checkinSelectedClient?.id || null,
+                    service_ids: checkinSelectedServices.map(s => s.id),
                 });
-
-                if (res.ok) {
-                    const statusText = status === 'en_atencion' ? 'asignado' : 'en fila';
-                    addToast({ type: 'success', message: `${clientName} ${statusText} exitosamente` });
+                if (ok) {
+                    addToast({
+                        type: 'success',
+                        message: json.status === 'started'
+                            ? `${clientName} asignado a ${json.professional.name} (lo pidió)`
+                            : `${clientName} espera a ${json.professional.name}`,
+                    });
                     setShowCheckinModal(false);
                     loadData();
                 } else {
-                    const err = await res.json();
-                    addToast({ type: 'error', message: err.error || 'Error al asignar' });
+                    addToast({ type: 'error', message: json.error || 'Error al asignar' });
                 }
             } else {
                 // Add to general waitlist
@@ -811,6 +811,12 @@ export default function BarbershopDashboard() {
         p.name.toLowerCase().includes(productSearch.toLowerCase())
     );
 
+    // Botón final del registro rápido según el barbero elegido.
+    const checkinBarber = data?.professionals?.find(p => p.id === checkinSelectedBarber);
+    const checkinSubmitLabel = !checkinBarber ? 'Agregar a Lista de Espera'
+        : checkinBarber.status === 'available' && !checkinBarber.preferredWaiting?.length ? `Atender con ${checkinBarber.name}`
+            : `Esperar a ${checkinBarber.name}`;
+
     return (
         <div className="barbershop">
             {/* Header */}
@@ -849,7 +855,7 @@ export default function BarbershopDashboard() {
                     <button
                         className="barbershop__auto-assign-btn"
                         onClick={handleAutoAssign}
-                        disabled={!data?.waitingCustomers?.length || !data?.professionals?.some(p => p.status === 'available')}
+                        disabled={turnBusy || !data?.waitingCustomers?.length || !data?.turns?.queue?.some(e => e.state !== 'ocupado')}
                     >
                         <Zap size={18} />
                         Auto-Asignar
@@ -872,8 +878,14 @@ export default function BarbershopDashboard() {
                                             <div className="barbershop__waiting-name">{customer.client_name}</div>
                                             <div className="barbershop__waiting-service">
                                                 <Scissors size={12} />
-                                                {customer.service_name || 'Sin servicio'}
+                                                {customer.service_name ? fullServiceName(customer) : 'Sin servicio'}
                                             </div>
+                                            {customer.professional_id && (
+                                                <div className="barbershop__waiting-wants" title="Pidió a este barbero: no consume turno">
+                                                    <UserCheck size={12} />
+                                                    Pide a {customer.professional_name || 'un barbero'}
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="barbershop__waiting-actions">
                                             <button
@@ -891,7 +903,7 @@ export default function BarbershopDashboard() {
                                                 className="barbershop__waiting-action-btn barbershop__waiting-action-btn--danger"
                                                 title="Remover"
                                                 onClick={async () => {
-                                                    if (!confirm(`¿Remover a ${customer.client_name} de la lista?`)) return;
+                                                    if (!(await confirmDialog({ title: 'Quitar de la sala de espera', message: `${customer.client_name} saldrá de la lista de espera.`, confirmText: 'Quitar', tone: 'danger' }))) return;
                                                     try {
                                                         const res = await fetch(`/api/salon/waitlist?id=${customer.id}&reason=expired`, { method: 'DELETE' });
                                                         addToast({ type: 'info', message: `${customer.client_name} removido de la lista` });
@@ -925,6 +937,35 @@ export default function BarbershopDashboard() {
                         <span className="barbershop__counter">{data?.professionals?.length || 0}</span>
                     </div>
 
+                    {/* Fila de turnos del día: orden por llegada con prioridad pendiente */}
+                    <div className="barbershop__turns">
+                        <div className="barbershop__turns-head">
+                            <span className="barbershop__turns-title"><ListOrdered size={15} /> Fila de turnos</span>
+                            <button className="barbershop__turns-log-btn" onClick={openTurnLog}>
+                                <History size={14} /> Registro
+                            </button>
+                        </div>
+                        {!data?.turns?.queue?.length ? (
+                            <p className="barbershop__turns-empty">
+                                Nadie ha marcado llegada hoy. Marca la llegada de cada barbero en su estación, en el orden en que llegan: el primero que marques va primero.
+                            </p>
+                        ) : (
+                            <ol className="barbershop__turns-list">
+                                {data.turns.queue.map((e) => (
+                                    <li
+                                        key={e.professional_id}
+                                        className={`barbershop__turn-chip barbershop__turn-chip--${e.is_next ? 'next' : e.state}${e.pending ? ' barbershop__turn-chip--pending' : ''}`}
+                                        title={`Llegó ${fmtClock(e.arrived_at)} · posición inicial #${e.initial_position} · ${e.clients_served} cliente(s), ${e.turns_taken} por turno`}
+                                    >
+                                        <span className="barbershop__turn-pos">{e.position}</span>
+                                        <span className="barbershop__turn-name">{e.name}</span>
+                                        <span className="barbershop__turn-state">{turnStateLabel(e)}</span>
+                                    </li>
+                                ))}
+                            </ol>
+                        )}
+                    </div>
+
                     <div className="barbershop__stations-grid">
                         {(!data?.professionals || data.professionals.length === 0) ? (
                             <div className="barbershop__empty">
@@ -932,12 +973,25 @@ export default function BarbershopDashboard() {
                                 <p>Sin profesionales registrados</p>
                             </div>
                         ) : (
-                            data.professionals.map((prof) => {
+                            // Mismo orden que la fila de turnos: el #1 arriba y quien toma
+                            // un cliente baja al final. Sin llegada marcada → al final.
+                            [...data.professionals]
+                                .sort((a, b) => (a.turn?.position ?? Infinity) - (b.turn?.position ?? Infinity))
+                                .map((prof) => {
                                 const progressInfo = getProgressInfo(prof.currentAppointment);
+                                const turn = prof.turn;
+                                const preferred = prof.preferredWaiting?.[0];
+                                const hasGeneralWaiting = data.waitingCustomers?.some(w => !w.professional_id);
+                                const nextClient = preferred?.client_name || prof.queue?.[0]?.client_name;
+                                const turnKind = prof.currentAppointment?.turn_kind;
+                                const statusText =
+                                    prof.status === 'unavailable' ? (prof.shiftState === 'out' ? '● Salió de la fila' : '● Sin marcar llegada')
+                                        : prof.status === 'available' ? '● Disponible'
+                                            : prof.status === 'busy' ? '● Ocupado' : '● Ocupado + Cola';
                                 return (
                                     <div
                                         key={prof.id}
-                                        className={`barbershop__station-card barbershop__station-card--${prof.status}`}
+                                        className={`barbershop__station-card barbershop__station-card--${prof.status}${turn?.is_next ? ' barbershop__station-card--next' : ''}`}
                                     >
                                         <div className="barbershop__station-header">
                                             <div
@@ -953,10 +1007,7 @@ export default function BarbershopDashboard() {
                                             <div className="barbershop__station-info">
                                                 <div className="barbershop__station-name">{prof.name}</div>
                                                 <div className={`barbershop__station-status barbershop__station-status--${prof.status}`}>
-                                                    {prof.status === 'available' ? '● Disponible' :
-                                                        prof.status === 'busy' ? '● Ocupado' :
-                                                            prof.status === 'unavailable' ? '● No Disponible' :
-                                                                '● Ocupado + Cola'}
+                                                    {statusText}
                                                 </div>
                                             </div>
                                             <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -987,29 +1038,47 @@ export default function BarbershopDashboard() {
                                                     <Wallet size={16} />
                                                 </button>
                                                 <button
-                                                    onClick={() => handleToggleAvailability(prof.id, !!prof.is_available)}
+                                                    onClick={() => handleShiftToggle(prof)}
+                                                    disabled={turnBusy}
                                                     className={`btn btn--icon btn--ghost p-1`}
-                                                    title={prof.is_available ? 'Desactivar' : 'Activar'}
-                                                    style={{ color: prof.is_available ? 'var(--text-secondary)' : 'var(--accent-red)', padding: '6px', borderRadius: '6px', background: prof.is_available ? 'rgba(139,92,246,0.04)' : 'rgba(239,68,68,0.1)' }}
+                                                    title={prof.shiftState === 'active' ? 'Marcar salida (deja la fila)' : 'Marcar llegada (entra a la fila)'}
+                                                    style={{ color: prof.shiftState === 'active' ? 'var(--text-secondary)' : 'var(--accent-red)', padding: '6px', borderRadius: '6px', background: prof.shiftState === 'active' ? 'rgba(139,92,246,0.04)' : 'rgba(239,68,68,0.1)' }}
                                                 >
                                                     <Power size={16} />
                                                 </button>
                                             </div>
                                         </div>
 
-                                        {prof.status === 'unavailable' ? (
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '20px 14px', color: '#9CA3AF', fontSize: '14px', fontWeight: 500 }}>
-                                                <Power size={16} />
-                                                <span>No disponible</span>
+                                        {turn && (
+                                            <div
+                                                className={`barbershop__station-turnbar${turn.is_next ? ' barbershop__station-turnbar--next' : turn.pending ? ' barbershop__station-turnbar--pending' : ''}`}
+                                                title={`Posición inicial #${turn.initial_position}`}
+                                            >
+                                                <span className="barbershop__station-turn">#{turn.position}</span>
+                                                <span className="barbershop__station-turnbar-state">{turnStateLabel(turn)}</span>
+                                                <span className="barbershop__station-turnbar-meta">
+                                                    Llegó {fmtClock(prof.arrivedAt)} · {turn.clients_served} cliente{turn.clients_served === 1 ? '' : 's'} ({turn.turns_taken} por turno)
+                                                </span>
                                             </div>
+                                        )}
+
+                                        {prof.status === 'unavailable' ? (
+                                            <button
+                                                className="barbershop__arrive-btn"
+                                                onClick={() => handleShiftToggle(prof)}
+                                                disabled={turnBusy}
+                                            >
+                                                <LogIn size={18} />
+                                                {prof.shiftState === 'out' ? 'Volver a la fila' : 'Marcar llegada'}
+                                            </button>
                                         ) : prof.status === 'available' ? (
                                             <button
-                                                className="barbershop__assign-btn"
+                                                className={`barbershop__assign-btn${turn?.is_next ? ' barbershop__assign-btn--next' : ''}`}
                                                 onClick={() => handleAssignNext(prof.id)}
-                                                disabled={!data?.waitingCustomers?.length}
+                                                disabled={turnBusy || (!preferred && !hasGeneralWaiting)}
                                             >
                                                 <UserCheck size={18} />
-                                                Asignar Siguiente
+                                                {preferred ? `Atender a ${preferred.client_name}` : turn?.is_next ? 'Asignar Siguiente · le toca' : 'Asignar Siguiente'}
                                             </button>
                                         ) : (
                                             <>
@@ -1020,7 +1089,8 @@ export default function BarbershopDashboard() {
                                                     </span>
                                                 </div>
                                                 <div className="barbershop__station-service-name">
-                                                    {prof.currentAppointment?.service_name || 'Servicio'}
+                                                    {fullServiceName(prof.currentAppointment)}
+                                                    {TURN_KIND_LABELS[turnKind] && ` · ${TURN_KIND_LABELS[turnKind]}`}
                                                 </div>
                                                 <div className="barbershop__progress-bar">
                                                     <div
@@ -1030,23 +1100,47 @@ export default function BarbershopDashboard() {
                                                 </div>
                                                 <div className="barbershop__progress-label-container" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#9CA3AF', marginTop: '4px' }}>
                                                     <span className="barbershop__progress-time">{progressInfo.elapsedText} / {progressInfo.durationText}</span>
-                                                    <span className="barbershop__progress-percent" style={{ color: '#3B82F6', fontWeight: 'bold' }}>{progressInfo.percent}%</span>
+                                                    <span className="barbershop__progress-percent" style={{ color: '#D97706', fontWeight: 'bold' }}>{progressInfo.percent}%</span>
                                                 </div>
 
-                                                {prof.status === 'busy_with_queue' && prof.queue?.[0] && (
+                                                {prof.status === 'busy_with_queue' && nextClient && (
                                                     <div className="barbershop__next-in-line">
                                                         <ChevronRight size={14} />
-                                                        Siguiente: {prof.queue[0].client_name}
+                                                        Siguiente: {nextClient}
                                                     </div>
                                                 )}
 
-                                                <button
-                                                    className="barbershop__checkout-btn"
-                                                    onClick={() => loadToCheckout(prof)}
-                                                >
-                                                    <Receipt size={14} />
-                                                    Enviar a Cobro
-                                                </button>
+                                                <div className="barbershop__station-actions">
+                                                    {prof.salon_collects === 0 ? (
+                                                        <button
+                                                            className="barbershop__checkout-btn barbershop__checkout-btn--finish"
+                                                            onClick={() => handleFinishService(prof)}
+                                                            disabled={turnBusy}
+                                                            title={`${prof.name} cobra sus servicios por su cuenta: solo se registra el fin de la atención`}
+                                                        >
+                                                            <CircleCheck size={14} />
+                                                            Finalizar servicio
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            className="barbershop__checkout-btn"
+                                                            onClick={() => loadToCheckout(prof)}
+                                                        >
+                                                            <Receipt size={14} />
+                                                            Enviar a Cobro
+                                                        </button>
+                                                    )}
+                                                    {['turno', 'fuera_de_turno', 'pedido'].includes(turnKind) && (
+                                                        <button
+                                                            className="barbershop__undo-btn"
+                                                            onClick={() => handleUndoAssignment(prof)}
+                                                            disabled={turnBusy}
+                                                            title="Anular asignación (si fue un error): el cliente vuelve a la sala y el barbero a su lugar"
+                                                        >
+                                                            <Undo2 size={14} />
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </>
                                         )}
                                     </div>
@@ -1513,6 +1607,9 @@ export default function BarbershopDashboard() {
                                     <p className="checkin-wizard__step-desc">
                                         {checkinSelectedServices.map(s => s.name).join(' + ')} para {checkinSelectedClient?.name || checkinClientName || checkinClientSearch}
                                     </p>
+                                    <p className="checkin-modal__turn-hint">
+                                        &quot;Primero Disponible&quot; respeta la fila de turnos. Elegir un barbero significa que el cliente lo pidió: no consume su turno.
+                                    </p>
 
                                     <div className="checkin-modal__barber-row">
                                         <button
@@ -1525,7 +1622,7 @@ export default function BarbershopDashboard() {
                                             <span className="checkin-modal__barber-name">Primero Disponible</span>
                                             <span className="checkin-modal__barber-status checkin-modal__barber-status--auto">Automático</span>
                                         </button>
-                                        {(data?.professionals || []).filter(p => p.is_available !== 0).map(prof => (
+                                        {(data?.professionals || []).filter(p => p.shiftState === 'active').map(prof => (
                                             <button
                                                 key={prof.id}
                                                 className={`checkin-modal__barber-btn ${checkinSelectedBarber === prof.id ? 'checkin-modal__barber-btn--active' : ''}`}
@@ -1539,7 +1636,8 @@ export default function BarbershopDashboard() {
                                                 </div>
                                                 <span className="checkin-modal__barber-name">{prof.name}</span>
                                                 <span className={`checkin-modal__barber-status checkin-modal__barber-status--${prof.status}`}>
-                                                    {prof.status === 'available' ? '● Libre' : prof.status === 'busy' ? '● Ocupado' : '● En cola'}
+                                                    {prof.turn ? `#${prof.turn.position} ` : ''}
+                                                    {prof.status === 'available' ? (prof.preferredWaiting?.length ? '● Con espera' : '● Libre') : prof.status === 'busy' ? '● Ocupado' : '● En cola'}
                                                 </span>
                                             </button>
                                         ))}
@@ -1576,10 +1674,58 @@ export default function BarbershopDashboard() {
                                         disabled={checkinSubmitting}
                                     >
                                         <UserPlus size={20} />
-                                        {checkinSubmitting ? 'Agregando...' : 'Agregar a Lista de Espera'}
+                                        {checkinSubmitting ? 'Agregando...' : checkinSubmitLabel}
                                     </button>
                                 )}
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ======== TURN LOG MODAL ======== */}
+            {showTurnLog && (
+                <div className="barbershop__modal-overlay" onClick={() => setShowTurnLog(false)}>
+                    <div className="checkin-modal" style={{ maxWidth: '640px' }} onClick={(e) => e.stopPropagation()}>
+                        <div className="checkin-modal__header">
+                            <div>
+                                <h2 className="checkin-modal__title">Registro de turnos</h2>
+                                <p className="checkin-modal__subtitle">Cada cambio de la fila de hoy, con su motivo y cómo quedó la fila</p>
+                            </div>
+                            <button className="checkin-modal__close" onClick={() => setShowTurnLog(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="checkin-modal__body">
+                            {turnLog === null ? (
+                                <div className="barbershop__loading"><div className="spinner" /></div>
+                            ) : turnLog.length === 0 ? (
+                                <p className="barbershop__turns-empty">Todavía no hay movimientos en la fila de hoy.</p>
+                            ) : (
+                                <ol className="barbershop__turnlog">
+                                    {turnLog.map((ev) => (
+                                        <li key={ev.id} className="barbershop__turnlog-item">
+                                            <div className="barbershop__turnlog-top">
+                                                <span className="barbershop__turnlog-time">{fmtClock(ev.created_at)}</span>
+                                                <span className={`barbershop__turnlog-event barbershop__turnlog-event--${ev.event}`}>
+                                                    {TURN_EVENT_LABELS[ev.event] || ev.event}
+                                                </span>
+                                                <span className="barbershop__turnlog-who">{ev.professional_name}</span>
+                                            </div>
+                                            <p className="barbershop__turnlog-reason">{ev.reason}</p>
+                                            {ev.queue_after?.length > 0 && (
+                                                <div className="barbershop__turnlog-queue">
+                                                    {ev.queue_after.map((q) => (
+                                                        <span key={q.id} className={`barbershop__turnlog-q${q.next ? ' barbershop__turnlog-q--next' : ''}`}>
+                                                            {q.pos}. {q.name}{q.pending ? ' · pendiente' : q.state === 'ocupado' ? ' · ocupado' : ''}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ol>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -1638,7 +1784,7 @@ export default function BarbershopDashboard() {
                                         </div>
                                         <span className="checkin-modal__barber-name">Auto</span>
                                     </button>
-                                    {(data?.professionals || []).filter(p => p.is_available !== 0).map(prof => (
+                                    {(data?.professionals || []).filter(p => p.shiftState === 'active').map(prof => (
                                         <button
                                             key={prof.id}
                                             className={`checkin-modal__barber-btn ${editWaitlistBarber === prof.id ? 'checkin-modal__barber-btn--active' : ''}`}
