@@ -297,7 +297,7 @@ export const SCHEMA_STATEMENTS = [
     client_email TEXT,
     notes TEXT,
     cancel_reason TEXT,
-    source TEXT DEFAULT 'manual' CHECK(source IN ('manual','online','whatsapp','phone','walk_in')),
+    source TEXT DEFAULT 'manual' CHECK(source IN ('manual','online','whatsapp','phone','walk_in','app')),
     deposit_paid REAL DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),

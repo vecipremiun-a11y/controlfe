@@ -5,7 +5,9 @@ export function middleware(request) {
     const token = request.cookies.get('auth-token')?.value;
 
     // Public routes - no auth required
-    const publicRoutes = ['/login', '/register', '/reservar', '/api/auth', '/api/setup', '/api/public'];
+    // /api/integrations (webhooks firmados) y /api/cron (CRON_SECRET) se
+    // autentican en su propia ruta, no con la cookie de sesión.
+    const publicRoutes = ['/login', '/register', '/reservar', '/api/auth', '/api/setup', '/api/public', '/api/integrations', '/api/cron'];
     const isPublic = publicRoutes.some(route => pathname.startsWith(route));
 
     // Static files and Next.js internals

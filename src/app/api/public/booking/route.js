@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { query, execute } from '@/lib/db';
 import { generateId } from '@/lib/utils';
+import { isEnabledFor, pushOccupancyForAppointment } from '@/lib/barberkeylut';
 
 // GET - Public: fetch salon info, services, professionals and available slots
 export async function GET(request) {
@@ -184,6 +185,9 @@ export async function POST(request) {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reservado', ?, ?, ?, ?, 'online')`,
             [id, tenantId, clientId, professional_id, service_id, date, start_time, endTime, client_name, client_phone, client_email || null, finalNotes || null]
         );
+
+        // La reserva web ocupa ese horario en la app Barber Keylut.
+        if (isEnabledFor(tenantId)) after(() => pushOccupancyForAppointment(id));
 
         return NextResponse.json({
             id,

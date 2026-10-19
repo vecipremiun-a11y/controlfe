@@ -1,8 +1,13 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { query, queryOne, execute } from '@/lib/db';
 import { generateId } from '@/lib/utils';
 import { recordAppointmentStatus } from '@/lib/turnQueue';
+import { isEnabledFor, pushOccupancyForAppointment, completeInApp, getActor } from '@/lib/barberkeylut';
+
+// Estados que ControlFe puede poner por su cuenta a una cita de la app
+// (source = 'app'); el resto se responde por la API de la app.
+const APP_LOCAL_STATUSES = ['en_atencion', 'terminado'];
 
 export async function GET(request) {
     try {
@@ -85,6 +90,9 @@ export async function POST(request) {
                 body.notes || null, body.source || 'manual']
         );
 
+        // Ocupación para la app Barber Keylut (no demora la respuesta).
+        if (isEnabledFor(user.tenantId)) after(() => pushOccupancyForAppointment(id));
+
         return NextResponse.json({ id }, { status: 201 });
     } catch (error) {
         console.error('Appointment creation error:', error);
@@ -103,6 +111,13 @@ export async function PUT(request) {
 
         if (body.status) {
             const previous = await queryOne(`SELECT * FROM appointments WHERE id = ? AND tenant_id = ?`, [id, user.tenantId]);
+            const fromApp = previous?.source === 'app';
+            if (fromApp && !APP_LOCAL_STATUSES.includes(body.status)) {
+                return NextResponse.json({
+                    code: 'APP_BOOKING',
+                    error: 'Esta reserva viene de la app Barber Keylut: confírmala, recházala o cancélala desde Reservas de la app.',
+                }, { status: 409 });
+            }
             await execute(
                 `UPDATE appointments SET status = ?, cancel_reason = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`,
                 [body.status, body.cancel_reason || null, id, user.tenantId]
@@ -138,6 +153,18 @@ export async function PUT(request) {
                         [apt[0].client_id]
                     );
                 }
+            }
+
+            // App Barber Keylut, sin demorar la respuesta ni bloquear el cobro:
+            // cita de la app terminada en el salón → /complete (si falla queda
+            // pendiente de avisar); cita propia → ocupación.
+            if (previous && isEnabledFor(user.tenantId)) {
+                const actor = getActor(user);
+                after(() => (fromApp
+                    ? (body.status === 'terminado' && previous.status !== 'terminado'
+                        ? completeInApp({ tenantId: user.tenantId, appointmentId: id, actor })
+                        : null)
+                    : pushOccupancyForAppointment(id)));
             }
         }
 

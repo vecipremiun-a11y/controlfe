@@ -1,9 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import {
     getTurnState, getTurnLog, markArrival, markLeave, assignFromWaitlist,
     requestBarber, undoAssignment, TurnError,
 } from '@/lib/turnQueue';
+import { isEnabledFor, pushOccupancyForAppointment } from '@/lib/barberkeylut';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,6 +63,9 @@ export async function POST(request) {
             default:
                 return NextResponse.json({ error: 'Acción inválida' }, { status: 400 });
         }
+        // La atención sin cita también ocupa al barbero en la app Barber Keylut.
+        const touched = result?.appointmentId || (body.action === 'undo' ? body.appointment_id : null);
+        if (touched && isEnabledFor(user.tenantId)) after(() => pushOccupancyForAppointment(touched));
         return NextResponse.json(result);
     } catch (error) {
         if (error instanceof TurnError) {

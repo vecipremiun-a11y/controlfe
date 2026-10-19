@@ -31,10 +31,18 @@ export async function POST(request) {
             clientId = existing[0]?.id || null;
         }
 
+        // Cita que se está cobrando (Barbershop o bandeja de reservas de la app):
+        // permite saber si una cita ya tiene cobro.
+        let appointmentId = null;
+        if (body.appointment_id) {
+            const appt = await query(`SELECT id FROM appointments WHERE id = ? AND tenant_id = ?`, [body.appointment_id, user.tenantId]);
+            appointmentId = appt[0]?.id || null;
+        }
+
         // Create sale (linked to the open register)
         await execute(
-            `INSERT INTO sales (id, tenant_id, branch_id, client_id, user_id, register_id, subtotal, discount, tip, total, payment_method, payment_details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [saleId, user.tenantId, user.branchId || null, clientId, user.id, register.id, body.subtotal, body.discount || 0, body.tip || 0, body.total, method, JSON.stringify(details)]
+            `INSERT INTO sales (id, tenant_id, branch_id, client_id, user_id, register_id, appointment_id, subtotal, discount, tip, total, payment_method, payment_details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [saleId, user.tenantId, user.branchId || null, clientId, user.id, register.id, appointmentId, body.subtotal, body.discount || 0, body.tip || 0, body.total, method, JSON.stringify(details)]
         );
 
         // Efectivo que entra a la caja: total si pago en efectivo, o la porción

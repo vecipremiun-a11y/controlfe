@@ -4,6 +4,7 @@ import { query } from '@/lib/db';
 import { tzToday, tzOffset } from '@/lib/utils';
 import { getTurnState } from '@/lib/turnQueue';
 import { ensureProfessionalColumns } from '@/lib/professionals';
+import { isEnabledFor, ensureIntegrationTables } from '@/lib/barberkeylut';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,10 +54,17 @@ export async function GET(request) {
         );
 
         // 3. Current active appointments (en_atencion) for today
+        // Citas de la app Barber Keylut: el servicio puede no existir en
+        // ControlFe; se usa el nombre y precio que manda la app.
+        const appEnabled = isEnabledFor(tenantId);
+        if (appEnabled) await ensureIntegrationTables();
         const activeAppointments = await query(
             `SELECT a.id, a.professional_id, a.client_id, a.service_id, a.start_time, a.end_time,
-                    a.client_name, a.status, a.notes, a.turn_kind, a.started_at,
-                    s.name as service_name, s.duration_min, s.price as service_price,
+                    a.client_name, a.status, a.notes, a.turn_kind, a.started_at, a.source,
+                    ${appEnabled
+                        ? 'COALESCE(s.name, a.external_service_name) as service_name, COALESCE(s.price, a.external_service_price) as service_price,'
+                        : 's.name as service_name, s.price as service_price,'}
+                    s.duration_min,
                     c.name as client_full_name
              FROM appointments a
              LEFT JOIN services s ON a.service_id = s.id

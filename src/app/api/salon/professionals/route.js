@@ -1,15 +1,37 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
-import { query, execute } from '@/lib/db';
+import { query, queryOne, execute } from '@/lib/db';
 import { generateId } from '@/lib/utils';
 import { uploadImage } from '@/lib/upload';
 import { ensureProfessionalColumns, parseSalonCollects } from '@/lib/professionals';
+import {
+    isEnabledFor, ensureIntegrationTables, syncProfessionalToApp, pushScheduleToApp, onProfessionalDeleted,
+    pushOccupancyForExceptions, importBookingsForLinkedBarber, syncBusy,
+} from '@/lib/barberkeylut';
+
+// Casilla "Usa la app Barber Keylut" (FormData la manda como texto). Si no
+// viene, se conserva lo que había.
+function parseAppUses(value, previous) {
+    if (value === undefined || value === null) return Number(previous?.app_uses) === 1;
+    return value === true || value === 'true' || value === '1';
+}
+
+// Después de vincular un barbero: sus reservas pendientes en la app y la
+// ocupación (colaciones, citas, días libres).
+function afterLinked(tenantId) {
+    after(async () => {
+        await importBookingsForLinkedBarber({ tenantId });
+        await syncBusy({ tenantId, force: true });
+    });
+}
 
 export async function GET(request) {
     try {
         const user = await getCurrentUser(request);
         if (!user?.tenantId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
         await ensureProfessionalColumns();
+        const appEnabled = isEnabledFor(user.tenantId);
+        if (appEnabled) await ensureIntegrationTables();
 
         const monthStart = new Date().toISOString().slice(0, 7) + '-01';
         const professionals = await query(
@@ -62,7 +84,7 @@ export async function GET(request) {
             services: profServices.filter(ps => ps.professional_id === p.id),
         }));
 
-        return NextResponse.json({ professionals: profsWithSchedules });
+        return NextResponse.json({ professionals: profsWithSchedules, barberkeylut: { enabled: appEnabled } });
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
@@ -103,6 +125,11 @@ export async function POST(request) {
         const access_role = body.access_role || 'own_agenda';
         const country_code = body.country_code || '+56';
         const salon_collects = parseSalonCollects(body.salon_collects);
+        const appEnabled = isEnabledFor(user.tenantId);
+        const appUses = appEnabled && parseAppUses(body.app_uses, null);
+        if (appUses && !String(body.email || '').trim()) {
+            return NextResponse.json({ error: 'El email es obligatorio para usar la app Barber Keylut' }, { status: 400 });
+        }
 
         let avatar_url = null;
         if (avatarFile && avatarFile.size > 0) {
@@ -134,7 +161,14 @@ export async function POST(request) {
             }
         }
 
-        return NextResponse.json({ id }, { status: 201 });
+        let app = null;
+        if (appEnabled) {
+            await ensureIntegrationTables();
+            app = await syncProfessionalToApp({ tenantId: user.tenantId, professionalId: id, previous: null, appUses, linkUid: body.app_link_uid || '' });
+            if (app?.linkedNow) afterLinked(user.tenantId);
+        }
+
+        return NextResponse.json({ id, app }, { status: 201 });
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
@@ -168,7 +202,16 @@ export async function PUT(request) {
         // Horario y Libres envían solo name + schedules/exceptions: en ese caso no
         // se toca el perfil (antes se reescribía con valores por defecto y se
         // perdían el modo de pago, el arriendo, el teléfono, etc.).
+        const appEnabled = isEnabledFor(user.tenantId);
+        if (appEnabled) await ensureIntegrationTables();
+        const previous = await queryOne(`SELECT * FROM professionals WHERE id = ? AND tenant_id = ?`, [id, user.tenantId]);
+        let app = null;
+
         if (body.payment_mode !== undefined) {
+            const appUses = appEnabled && parseAppUses(body.app_uses, previous);
+            if (appUses && !String(body.email || '').trim()) {
+                return NextResponse.json({ error: 'El email es obligatorio para usar la app Barber Keylut' }, { status: 400 });
+            }
             const commission_percent = body.commission_percent !== undefined ? parseFloat(body.commission_percent) : 50;
             const payment_mode = body.payment_mode || 'commission';
             const base_salary = body.base_salary ? parseFloat(body.base_salary) : 0;
@@ -197,6 +240,13 @@ export async function PUT(request) {
                 `UPDATE professionals SET name = ?, phone = ?, email = ?, color = ?, commission_percent = ?, rut = ?, payment_mode = ?, base_salary = ?, per_service_rate = ?, rent_amount = ?, rent_frequency = ?, pay_frequency = ?, pay_day = ?, access_role = ?, country_code = ?, salon_collects = ?${avatarClause}, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`,
                 params
             );
+
+            if (appEnabled) {
+                // Guardar el formulario completo revisa los datos de pago.
+                await execute(`UPDATE professionals SET needs_payment_setup = 0 WHERE id = ? AND tenant_id = ?`, [id, user.tenantId]);
+                app = await syncProfessionalToApp({ tenantId: user.tenantId, professionalId: id, previous, appUses, linkUid: body.app_link_uid || '' });
+                if (app?.linkedNow) afterLinked(user.tenantId);
+            }
         }
 
         // Update schedules if provided
@@ -213,6 +263,13 @@ export async function PUT(request) {
                     );
                 }
             }
+            // La app recibe inicio y fin de cada día; la colación va como ocupación.
+            if (appEnabled) {
+                after(async () => {
+                    await pushScheduleToApp({ tenantId: user.tenantId, professionalId: id });
+                    await syncBusy({ tenantId: user.tenantId, force: true });
+                });
+            }
         }
 
         // Update exceptions (days off) if provided
@@ -220,12 +277,25 @@ export async function PUT(request) {
             const exceptions = typeof body.exceptions === 'string' ? JSON.parse(body.exceptions) : body.exceptions;
             // Remove future exceptions then re-insert
             const today = new Date().toISOString().split('T')[0];
+            // Se borran y recrean con ids nuevos: la app recibe DELETE de los
+            // anteriores y PUT de los nuevos.
+            const removed = appEnabled
+                ? await query(`SELECT id FROM schedule_exceptions WHERE professional_id = ? AND date >= ?`, [id, today])
+                : [];
             await execute(`DELETE FROM schedule_exceptions WHERE professional_id = ? AND date >= ?`, [id, today]);
+            const added = [];
             for (const exc of exceptions) {
+                const excId = generateId();
                 await execute(
                     `INSERT INTO schedule_exceptions (id, professional_id, date, type, reason) VALUES (?, ?, ?, ?, ?)`,
-                    [generateId(), id, exc.date, exc.type || 'blocked', exc.reason || null]
+                    [excId, id, exc.date, exc.type || 'blocked', exc.reason || null]
                 );
+                added.push({ id: excId, date: exc.date, type: exc.type || 'blocked' });
+            }
+            if (appEnabled) {
+                after(() => pushOccupancyForExceptions({
+                    tenantId: user.tenantId, professionalId: id, removedIds: removed.map((r) => r.id), addedRows: added,
+                }));
             }
         }
 
@@ -242,7 +312,7 @@ export async function PUT(request) {
             }
         }
 
-        return NextResponse.json({ message: 'Profesional actualizado' });
+        return NextResponse.json({ message: 'Profesional actualizado', app });
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
@@ -254,7 +324,12 @@ export async function DELETE(request) {
         if (!user?.tenantId) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
+        const appEnabled = isEnabledFor(user.tenantId);
+        if (appEnabled) await ensureIntegrationTables();
+        const previous = appEnabled ? await queryOne(`SELECT * FROM professionals WHERE id = ? AND tenant_id = ?`, [id, user.tenantId]) : null;
         await execute(`UPDATE professionals SET active = 0 WHERE id = ? AND tenant_id = ?`, [id, user.tenantId]);
+        // Vinculado → la app lo desactiva; solo invitado → se borra la invitación.
+        if (appEnabled) after(() => onProfessionalDeleted({ previous }));
         return NextResponse.json({ message: 'Profesional eliminado' });
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
