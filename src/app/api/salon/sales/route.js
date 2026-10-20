@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { query, execute } from '@/lib/db';
 import { generateId } from '@/lib/utils';
 import { ensureCashTables, getOpenRegister, addCashMovement } from '@/lib/cashRegister';
+import { ensureTabTables, assertTabItemsOpen, markTabItemsPaid, TabError } from '@/lib/tabs';
 
 export async function POST(request) {
     try {
@@ -20,6 +21,16 @@ export async function POST(request) {
         const saleId = generateId();
         const method = body.payment_method || 'cash';
         const details = body.payment_details || {};
+
+        // Anotaciones de cuentas de Barbershop que se pagan con esta venta.
+        await ensureTabTables();
+        const tabItemIds = (body.items || []).map(i => i.tab_item_id).filter(Boolean);
+        try {
+            await assertTabItemsOpen({ tenantId: user.tenantId, ids: tabItemIds });
+        } catch (e) {
+            if (e instanceof TabError) return NextResponse.json({ error: e.message, code: e.code }, { status: e.status });
+            throw e;
+        }
 
         // Find or create client
         let clientId = null;
@@ -61,8 +72,9 @@ export async function POST(request) {
         // Create sale items and update stock
         for (const item of body.items) {
             await execute(
-                `INSERT INTO sale_items (id, sale_id, type, item_id, item_name, quantity, unit_price, discount, total, professional_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [generateId(), saleId, item.type, item.item_id, item.name, item.quantity, item.unit_price, 0, item.quantity * item.unit_price, item.professional_id || null]
+                `INSERT INTO sale_items (id, sale_id, type, item_id, item_name, quantity, unit_price, discount, total, professional_id, appointment_id, tab_item_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [generateId(), saleId, item.type, item.item_id, item.name, item.quantity, item.unit_price, 0, item.quantity * item.unit_price, item.professional_id || null,
+                    item.appointment_id || null, item.tab_item_id || null]
             );
 
             // Update product stock
@@ -78,6 +90,8 @@ export async function POST(request) {
                 );
             }
         }
+
+        await markTabItemsPaid({ tenantId: user.tenantId, ids: tabItemIds, saleId });
 
         // Update client stats
         if (clientId) {

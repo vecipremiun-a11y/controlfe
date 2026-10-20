@@ -5,6 +5,7 @@ import { tzToday, tzOffset } from '@/lib/utils';
 import { getTurnState } from '@/lib/turnQueue';
 import { ensureProfessionalColumns } from '@/lib/professionals';
 import { isEnabledFor, ensureIntegrationTables } from '@/lib/barberkeylut';
+import { getAccountsOverview } from '@/lib/tabs';
 
 export const dynamic = 'force-dynamic';
 
@@ -196,8 +197,12 @@ export async function GET(request) {
             [tenantId]
         );
 
+        // 10. Cuentas de los clientes (consumo anotado para cobrar después).
+        const accounts = await getAccountsOverview({ tenantId });
+
         return NextResponse.json({
             currency,
+            accounts,
             assignMode: opConfig.assign_mode || 'least_busy',
             turns: { date: turns.date, mode: turns.mode, queue: turns.queue },
             waitingCustomers,
