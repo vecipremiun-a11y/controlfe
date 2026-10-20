@@ -89,7 +89,7 @@ export default function POSPage() {
     useEffect(() => {
         if (canReservations) loadReservations();
     }, [canReservations, loadReservations]);
-    usePolling(loadReservations, tab === 'reservas' ? 10000 : 20000, canReservations);
+    usePolling(loadReservations, tab === 'reservas' ? 20000 : 60000, canReservations);
     const reservationsBadge = (reservations?.items || [])
         .filter(i => i.status === 'reservado' || i.needsCharge || i.attention).length;
 

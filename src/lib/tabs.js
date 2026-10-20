@@ -60,6 +60,20 @@ const TAB_MIGRATIONS = [
     `ALTER TABLE sale_items ADD COLUMN tab_item_id TEXT`,
 ];
 
+// Índices para lo que se consulta cada pocos segundos (Barbershop, Reservas,
+// campana): sin ellos cada consulta recorre tablas completas y Turso cobra
+// cada fila leída (el plan gratis se bloquea al pasar su cuota mensual).
+const TAB_INDEXES = [
+    `CREATE INDEX IF NOT EXISTS idx_client_tab_items_open ON client_tab_items(tenant_id, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sale_items_appointment ON sale_items(appointment_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sales_appointment ON sales(appointment_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_appointments_waitlist ON appointments(waitlist_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_appointments_created ON appointments(tenant_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_appointments_source ON appointments(tenant_id, source, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_waitlist_status ON waitlist(tenant_id, status)`,
+];
+
 export class TabError extends Error {
     constructor(message, status = 400, code = 'invalid') {
         super(message);
@@ -74,6 +88,9 @@ export async function ensureTabTables(db = getDb()) {
     for (const sql of TAB_TABLES) await db.execute(sql);
     for (const sql of TAB_MIGRATIONS) {
         try { await db.execute(sql); } catch { /* la columna ya existe */ }
+    }
+    for (const sql of TAB_INDEXES) {
+        try { await db.execute(sql); } catch { /* columna aún no creada en esta base */ }
     }
     readyClients.add(db);
 }
@@ -127,15 +144,15 @@ async function loadOpenTabs(db, tenantId) {
                     ORDER BY a.created_at DESC LIMIT 1
                 )) AS resolved_appointment_id
          FROM client_tabs t
-         WHERE t.tenant_id = ? AND EXISTS (SELECT 1 FROM client_tab_items i WHERE i.tab_id = t.id AND i.status = 'open')
+         WHERE t.id IN (SELECT i.tab_id FROM client_tab_items i WHERE i.tenant_id = ? AND i.status = 'open')
          ORDER BY t.created_at`,
         [tenantId]);
     if (!tabs.length) return [];
     const items = await rows(db,
         `SELECT i.id, i.tab_id, i.type, i.item_id, i.name, i.quantity, i.unit_price, i.created_by_name,
                 strftime('%Y-%m-%dT%H:%M:%SZ', i.created_at) AS created_at
-         FROM client_tab_items i JOIN client_tabs t ON t.id = i.tab_id
-         WHERE t.tenant_id = ? AND i.status = 'open'
+         FROM client_tab_items i
+         WHERE i.tenant_id = ? AND i.status = 'open'
          ORDER BY i.created_at`,
         [tenantId]);
     // ¿El salón cobra los servicios de quien lo atiende? (los servicios extra

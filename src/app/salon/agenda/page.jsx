@@ -98,7 +98,7 @@ export default function AgendaPage() {
     useEffect(() => {
         if (pollAppCount) loadAppCount();
     }, [pollAppCount, loadAppCount]);
-    usePolling(loadAppCount, 15000, pollAppCount);
+    usePolling(loadAppCount, 60000, pollAppCount);
 
     // Current time indicator
     const [now, setNow] = useState(new Date());

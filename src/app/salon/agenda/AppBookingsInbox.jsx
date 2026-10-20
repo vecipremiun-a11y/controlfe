@@ -32,7 +32,7 @@ function fmtDay(date, today) {
 
 // Bandeja "Reservas de la app": responde en nombre del barbero. Al abrir trae
 // las reservas desde la app (respaldo por si se perdió un webhook) y luego
-// refresca cada 10 s desde la base local.
+// refresca cada 20 s desde la base local.
 export default function AppBookingsInbox({ onChanged, onCount }) {
     const { addToast } = useStore();
     const [data, setData] = useState(null);
@@ -62,7 +62,7 @@ export default function AppBookingsInbox({ onChanged, onCount }) {
         load(true);
     }, [load]);
     // Una reserva nueva llega por webhook a la base: se ve en segundos.
-    usePolling(() => load(false), 10000);
+    usePolling(() => load(false), 20000);
 
     const today = data?.today;
     const groups = useMemo(() => {

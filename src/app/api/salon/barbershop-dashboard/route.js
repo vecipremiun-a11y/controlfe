@@ -20,6 +20,13 @@ export async function GET(request) {
         // Día y offset de Chile: created_at se guarda en UTC (ver utils.js).
         const today = tzToday();
         const offset = tzOffset();
+        // Límites del día en UTC: permiten usar el índice de sales.created_at
+        // (DATE(created_at, offset) recorría todas las ventas del salón).
+        const toUtc = (iso) => new Date(iso).toISOString().slice(0, 19).replace('T', ' ');
+        const nextDay = new Date(`${today}T12:00:00Z`);
+        nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+        const dayStart = toUtc(`${today}T00:00:00${offset}`);
+        const dayEnd = toUtc(`${nextDay.toISOString().slice(0, 10)}T00:00:00${offset}`);
 
         // Fila de turnos del día (llegada, prioridad y estado de cada barbero).
         const turns = await getTurnState(tenantId);
@@ -92,9 +99,9 @@ export async function GET(request) {
                     MAX(created_at) as last_service_at
              FROM sale_items si
              JOIN sales s ON si.sale_id = s.id
-             WHERE s.tenant_id = ? AND DATE(s.created_at, ?) = ? AND s.status = 'completed'
+             WHERE s.tenant_id = ? AND s.created_at >= ? AND s.created_at < ? AND s.status = 'completed'
              GROUP BY professional_id`,
-            [tenantId, offset, today]
+            [tenantId, dayStart, dayEnd]
         );
         const serviceCountMap = {};
         for (const sc of todayServiceCounts) {
@@ -163,8 +170,8 @@ export async function GET(request) {
             `SELECT COUNT(*) as total_sales, COALESCE(SUM(total), 0) as total_revenue,
                     COALESCE(SUM(tip), 0) as total_tips
              FROM sales
-             WHERE tenant_id = ? AND DATE(created_at, ?) = ? AND status = 'completed'`,
-            [tenantId, offset, today]
+             WHERE tenant_id = ? AND created_at >= ? AND created_at < ? AND status = 'completed'`,
+            [tenantId, dayStart, dayEnd]
         );
 
         // 7. Recent completed sales for checkout reference
@@ -173,10 +180,10 @@ export async function GET(request) {
                     c.name as client_name
              FROM sales s
              LEFT JOIN clients c ON s.client_id = c.id
-             WHERE s.tenant_id = ? AND DATE(s.created_at, ?) = ? AND s.status = 'completed'
+             WHERE s.tenant_id = ? AND s.created_at >= ? AND s.created_at < ? AND s.status = 'completed'
              ORDER BY s.created_at DESC
              LIMIT 5`,
-            [tenantId, offset, today]
+            [tenantId, dayStart, dayEnd]
         );
 
         // 8. Products for the "Add Product" feature

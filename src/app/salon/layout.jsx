@@ -167,8 +167,8 @@ export default function SalonLayout({ children }) {
     useEffect(() => {
         if (user) fetchNotifications();
     }, [user, fetchNotifications]);
-    // Cada 15 s con la pestaña visible: una reserva de la app avisa en segundos.
-    usePolling(fetchNotifications, 15000, !!user);
+    // Cada 30 s y solo con la pestaña visible (cada consulta cuesta lecturas en Turso).
+    usePolling(fetchNotifications, 30000, !!user);
 
     // Close dropdown on outside click
     useEffect(() => {
