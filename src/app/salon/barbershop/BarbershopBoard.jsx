@@ -61,6 +61,13 @@ const TURN_KIND_LABELS = {
     reserva: 'reserva',
 };
 
+// Modo de la fila (Configuración → Operación).
+const TURN_MODE_LABELS = {
+    round_robin: 'Turno parejo',
+    release_order: 'Llegada y desocupación',
+    least_busy: 'Menos cortes del día',
+};
+
 // Texto del estado de un barbero en la fila de turnos.
 const turnStateLabel = (e) => {
     if (e.is_next) return 'Le toca';
@@ -784,10 +791,17 @@ export default function BarbershopBoard({ onCharge, onOpenAccount, reloadSignal 
                         <span className="barbershop__counter">{data?.professionals?.length || 0}</span>
                     </div>
 
-                    {/* Fila de turnos del día: orden por llegada con prioridad pendiente */}
+                    {/* Fila de turnos del día: el orden depende del modo configurado */}
                     <div className="barbershop__turns">
                         <div className="barbershop__turns-head">
-                            <span className="barbershop__turns-title"><ListOrdered size={15} /> Fila de turnos</span>
+                            <span className="barbershop__turns-title">
+                                <ListOrdered size={15} /> Fila de turnos
+                                {TURN_MODE_LABELS[data?.turns?.mode] && (
+                                    <span className="barbershop__turns-mode" title="Se cambia en Configuración → Operación">
+                                        {TURN_MODE_LABELS[data.turns.mode]}
+                                    </span>
+                                )}
+                            </span>
                             <button className="barbershop__turns-log-btn" onClick={openTurnLog}>
                                 <History size={14} /> Registro
                             </button>

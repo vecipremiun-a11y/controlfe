@@ -23,11 +23,22 @@ import { withWriteTx } from './writeTx.js';
 //    le deben los turnos atendidos antes.
 //  - Un cliente que pide a un barbero, o una reserva de agenda, no consume turno.
 //
+// Modo "por llegada y desocupación" (assign_mode = 'release_order'):
+//  - La fila parte en orden de llegada. Quien empieza a atender pasa al final
+//    y vuelve a la fila cuando se desocupa (barber_turns.ready_at = hora en
+//    que terminó): le toca al libre que lleva más tiempo esperando.
+//  - Vale para cualquier servicio: por turno, un cliente que lo pidió o una
+//    reserva.
+//  - ready_at se actualiza en todos los modos, así el salón puede cambiar de
+//    modo durante el día sin perder el orden.
+//
 // Toda operación que cambia la fila corre en una transacción de escritura y deja
 // un registro en barber_turn_events con el motivo y la fila resultante.
 
 // Tipos de servicio según cómo se asignó (appointments.turn_kind).
 const CONSUMES_TURN = new Set(['turno', 'fuera_de_turno']);
+
+export const RELEASE_MODE = 'release_order';
 
 const TURN_TABLES = [
     // Estado de cada barbero en la fila del día (un registro por barbero y día).
@@ -44,6 +55,7 @@ const TURN_TABLES = [
         turns_taken INTEGER NOT NULL DEFAULT 0,
         lap_offset INTEGER NOT NULL DEFAULT 0,
         last_turn_at TEXT,
+        ready_at TEXT,
         left_at TEXT,
         updated_at TEXT DEFAULT (datetime('now')),
         UNIQUE(tenant_id, professional_id, date)
@@ -79,6 +91,8 @@ const TURN_MIGRATIONS = [
     `ALTER TABLE appointments ADD COLUMN started_at TEXT`,
     `ALTER TABLE appointments ADD COLUMN finished_at TEXT`,
     `ALTER TABLE appointments ADD COLUMN waitlist_id TEXT`,
+    // Desde cuándo espera cliente (llegada, regreso o término de su último turno).
+    `ALTER TABLE barber_turns ADD COLUMN ready_at TEXT`,
 ];
 
 const readyClients = new WeakSet();
@@ -108,16 +122,34 @@ export class TurnError extends Error {
 //  - 'libre'     → puede tomar el próximo cliente.
 //  - 'ocupado'   → atendiendo (servicio en_atencion).
 //  - 'reservado' → libre, pero tiene en espera un cliente que lo pidió.
-// Orden: menos vueltas primero; entre iguales, el que llegó antes.
+// Orden según el modo:
+//  - por turno / menos cortes: menos vueltas primero; entre iguales, el que
+//    llegó antes.
+//  - por desocupación (RELEASE_MODE): primero quienes esperan cliente, del que
+//    lleva más tiempo libre al más reciente; al final quienes están atendiendo
+//    (en el orden en que empezaron), que vuelven a la fila al terminar.
+// `busySince`: id del barbero ocupado → hora de inicio de su servicio.
 // `pending` marca a quien está delante del que atiende ahora pero no puede
 // atender: conserva su prioridad y la recupera apenas quede libre.
-export function buildQueue(shifts, { busyIds = new Set(), reservedIds = new Set(), mode = 'round_robin' } = {}) {
+export function buildQueue(shifts, { busySince = new Map(), reservedIds = new Set(), mode = 'round_robin' } = {}) {
     const laps = (s) => (Number(s.turns_taken) || 0) + (Number(s.lap_offset) || 0);
+    const bySeq = (a, b) => Number(a.queue_seq) - Number(b.queue_seq);
+    const release = mode === RELEASE_MODE;
+    const releaseKey = (s) => (busySince.has(s.professional_id)
+        ? [1, busySince.get(s.professional_id) || '']
+        : [0, s.ready_at || s.arrived_at || '']);
+    const compare = release
+        ? (a, b) => {
+            const [ga, ta] = releaseKey(a);
+            const [gb, tb] = releaseKey(b);
+            return (ga - gb) || (ta < tb ? -1 : ta > tb ? 1 : 0) || bySeq(a, b);
+        }
+        : (a, b) => (laps(a) - laps(b)) || bySeq(a, b);
     const entries = shifts
         .filter((s) => s.status === 'active')
-        .sort((a, b) => (laps(a) - laps(b)) || (Number(a.queue_seq) - Number(b.queue_seq)))
+        .sort(compare)
         .map((s, i) => {
-            const busy = busyIds.has(s.professional_id);
+            const busy = busySince.has(s.professional_id);
             const reserved = !busy && reservedIds.has(s.professional_id);
             return {
                 professional_id: s.professional_id,
@@ -126,6 +158,7 @@ export function buildQueue(shifts, { busyIds = new Set(), reservedIds = new Set(
                 queue_seq: Number(s.queue_seq),
                 state: busy ? 'ocupado' : reserved ? 'reservado' : 'libre',
                 arrived_at: s.arrived_at,
+                ready_at: s.ready_at || s.arrived_at,
                 initial_position: Number(s.initial_position),
                 clients_served: Number(s.clients_served) || 0,
                 turns_taken: Number(s.turns_taken) || 0,
@@ -138,13 +171,15 @@ export function buildQueue(shifts, { busyIds = new Set(), reservedIds = new Set(
     const next = pickNext(entries, mode);
     for (const e of entries) {
         e.is_next = !!next && e.professional_id === next.professional_id;
-        e.pending = e.state !== 'libre' && (!next || e.position < next.position);
+        // Por desocupación, quien atiende ya pasó al final: no conserva prioridad.
+        e.pending = e.state !== 'libre' && !(release && e.state === 'ocupado') && (!next || e.position < next.position);
     }
     return entries;
 }
 
 // A quién le toca el próximo cliente sin preferencia de barbero.
-//  - 'round_robin' (por turno): el primer barbero libre según la fila.
+//  - 'round_robin' (por turno) y 'release_order' (por desocupación): el primer
+//    barbero libre según la fila.
 //  - 'least_busy': el libre con menos clientes hoy; empate → el de mejor posición.
 export function pickNext(entries, mode = 'round_robin') {
     const free = entries.filter((e) => e.state === 'libre');
@@ -166,14 +201,29 @@ function joinNames(names) {
 
 const STATE_LABEL = { ocupado: 'ocupado', reservado: 'espera a su cliente', libre: 'libre' };
 
-function describeTake({ kind, barber, clientName, before, after }) {
+const TO_END = 'pasa al final: vuelve a la fila cuando se desocupe';
+
+function describeTake({ kind, barber, clientName, before, after, mode }) {
     const posAfter = positionOf(after, barber.professional_id);
     if (kind === 'pedido') {
-        return `Atiende a ${clientName}, que lo pidió. No consume turno: conserva su posición #${barber.position}.`;
+        return mode === RELEASE_MODE
+            ? `Atiende a ${clientName}, que lo pidió, y ${TO_END}.`
+            : `Atiende a ${clientName}, que lo pidió. No consume turno: conserva su posición #${barber.position}.`;
     }
     const ahead = before.filter((e) => e.position < barber.position);
     const plural = ahead.length > 1 ? 'n' : '';
     const turns = after.find((e) => e.professional_id === barber.professional_id)?.turns_taken;
+    if (mode === RELEASE_MODE) {
+        let text;
+        if (kind === 'fuera_de_turno') {
+            const next = before.find((e) => e.is_next);
+            text = `Atiende a ${clientName} fuera de turno (asignación manual${next ? `; le tocaba a ${next.name}, #${next.position}` : ''}). Cuenta como su ${turns}º turno y ${TO_END}.`;
+        } else {
+            text = `Atiende a ${clientName} por turno (su ${turns}º turno) y ${TO_END}.`;
+        }
+        if (ahead.length) text += ` ${joinNames(ahead.map((e) => e.name))} conserva${plural} su lugar.`;
+        return text;
+    }
     if (kind === 'fuera_de_turno') {
         const next = before.find((e) => e.is_next);
         let text = `Atiende a ${clientName} fuera de turno (asignación manual${next ? `; le tocaba a ${next.name}, #${next.position}` : ''}). Cuenta como su ${turns}º turno y queda #${posAfter} en la fila.`;
@@ -188,11 +238,17 @@ function describeTake({ kind, barber, clientName, before, after }) {
     return text;
 }
 
-function describeFinish({ newStatus, clientName, minutes, entry, after, startedAt }) {
+function describeFinish({ newStatus, clientName, minutes, entry, after, startedAt, mode }) {
     const verb = newStatus === 'terminado' ? `Terminó el servicio de ${clientName}`
         : newStatus === 'no_show' ? `${clientName} no se presentó`
             : `Se canceló el servicio de ${clientName}`;
     const duration = newStatus === 'terminado' && minutes != null ? ` (${minutes} min)` : '';
+    if (mode === RELEASE_MODE) {
+        let text = `${verb}${duration}. Se desocupa y entra a la fila en la posición #${entry.position}`;
+        if (entry.is_next) text += '. Le toca el próximo cliente';
+        else if (entry.state === 'reservado') text += '. Tiene un cliente que lo pidió esperando';
+        return `${text}.`;
+    }
     let text = `${verb}${duration}. Queda libre en la posición #${entry.position}`;
     // Quienes tomaron clientes mientras atendía quedaron detrás de él: llevan
     // más turnos o llegaron después, así que recupera su lugar.
@@ -233,15 +289,15 @@ async function loadDay(ex, tenantId, date) {
          ORDER BY bt.queue_seq`,
         [tenantId, date]);
     const busy = await rows(ex,
-        `SELECT DISTINCT professional_id FROM appointments WHERE tenant_id = ? AND date = ? AND status = 'en_atencion'`,
+        `SELECT professional_id, turn_kind, started_at FROM appointments WHERE tenant_id = ? AND date = ? AND status = 'en_atencion'`,
         [tenantId, date]);
     const reserved = await rows(ex,
         `SELECT DISTINCT professional_id FROM waitlist WHERE tenant_id = ? AND status = 'waiting' AND professional_id IS NOT NULL`,
         [tenantId]);
     const mode = await getAssignMode(ex, tenantId);
-    const busyIds = new Set(busy.map((r) => r.professional_id));
+    const busySince = new Map(busy.map((r) => [r.professional_id, r.started_at || '']));
     const reservedIds = new Set(reserved.map((r) => r.professional_id));
-    return { shifts, mode, queue: buildQueue(shifts, { busyIds, reservedIds, mode }) };
+    return { shifts, mode, queue: buildQueue(shifts, { busySince, reservedIds, mode }) };
 }
 
 async function nextSeq(ex, tenantId, date) {
@@ -349,7 +405,7 @@ async function startService(tx, ctx) {
     });
 
     const after = await loadDay(tx, tenantId, date);
-    const reason = describeTake({ kind, barber, clientName: ctx.clientName, before: day.queue, after: after.queue });
+    const reason = describeTake({ kind, barber, clientName: ctx.clientName, before: day.queue, after: after.queue, mode: day.mode });
     await logEvent(tx, {
         tenantId, date, professionalId: barber.professional_id, event: kind, appointmentId,
         waitlistId: ctx.waitlistId, before: barber.position, after: positionOf(after.queue, barber.professional_id),
@@ -406,14 +462,14 @@ export async function markArrival({ tenantId, professionalId, userId = null, now
             const turns = Number(shift.turns_taken) || 0;
             const ownLaps = turns + (Number(shift.lap_offset) || 0);
             await tx.execute({
-                sql: `UPDATE barber_turns SET status = 'active', queue_seq = ?, lap_offset = ?, left_at = NULL, updated_at = ? WHERE id = ?`,
-                args: [seq, Math.max(maxLaps, ownLaps) - turns, iso, shift.id],
+                sql: `UPDATE barber_turns SET status = 'active', queue_seq = ?, lap_offset = ?, ready_at = ?, left_at = NULL, updated_at = ? WHERE id = ?`,
+                args: [seq, Math.max(maxLaps, ownLaps) - turns, iso, iso, shift.id],
             });
         } else {
             await tx.execute({
-                sql: `INSERT INTO barber_turns (id, tenant_id, professional_id, date, arrived_at, initial_position, queue_seq, lap_offset, status, updated_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-                args: [generateId(), tenantId, professionalId, date, iso, before.queue.length + 1, seq, maxLaps, iso],
+                sql: `INSERT INTO barber_turns (id, tenant_id, professional_id, date, arrived_at, initial_position, queue_seq, lap_offset, ready_at, status, updated_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+                args: [generateId(), tenantId, professionalId, date, iso, before.queue.length + 1, seq, maxLaps, iso, iso],
             });
         }
 
@@ -433,9 +489,14 @@ export async function markArrival({ tenantId, professionalId, userId = null, now
         const pos = positionOf(after.queue, professionalId);
         const hhmm = tzTime(APP_TIMEZONE, now);
         const event = shift ? 'regreso' : 'llegada';
-        const reason = shift
-            ? `Volvió a las ${hhmm} y entra al final de la fila (#${pos}); los turnos atendidos mientras no estaba no se le deben.`
-            : `Llegó a las ${hhmm}: posición inicial #${pos}, al final de la fila sin desplazar a nadie.`;
+        let reason;
+        if (after.mode === RELEASE_MODE) {
+            reason = `${shift ? 'Volvió' : 'Llegó'} a las ${hhmm} y entra a la fila en la posición #${pos}, detrás de quienes ya esperaban cliente.`;
+        } else {
+            reason = shift
+                ? `Volvió a las ${hhmm} y entra al final de la fila (#${pos}); los turnos atendidos mientras no estaba no se le deben.`
+                : `Llegó a las ${hhmm}: posición inicial #${pos}, al final de la fila sin desplazar a nadie.`;
+        }
         await logEvent(tx, {
             tenantId, date, professionalId, event, before: null, after: pos,
             seqBefore: shift ? shift.queue_seq : null, seqAfter: seq, reason, queue: after.queue, userId, now,
@@ -632,6 +693,14 @@ export async function recordAppointmentStatus({ tenantId, appointment, newStatus
                 sql: `UPDATE barber_turns SET clients_served = clients_served + 1, updated_at = ? WHERE id = ?`,
                 args: [iso, shift.id],
             });
+        } else {
+            // Termina cualquier servicio (turno, pedido o reserva): queda
+            // esperando cliente desde ahora. En el modo por desocupación vuelve
+            // a la fila detrás de quienes ya esperaban.
+            await tx.execute({
+                sql: `UPDATE barber_turns SET ready_at = ?, updated_at = ? WHERE id = ?`,
+                args: [iso, iso, shift.id],
+            });
         }
 
         const after = await loadDay(tx, tenantId, appt.date);
@@ -640,10 +709,14 @@ export async function recordAppointmentStatus({ tenantId, appointment, newStatus
         const clientName = appt.client_name || 'el cliente';
         let reason;
         if (starting) {
-            reason = `Inicia la reserva de ${clientName}. No consume turno: conserva su posición #${entry.position}.`;
+            reason = after.mode === RELEASE_MODE
+                ? `Inicia la reserva de ${clientName} y ${TO_END}.`
+                : `Inicia la reserva de ${clientName}. No consume turno: conserva su posición #${entry.position}.`;
         } else {
             const minutes = appt.started_at ? Math.max(0, Math.round((now - new Date(appt.started_at)) / 60000)) : null;
-            reason = describeFinish({ newStatus, clientName, minutes, entry, after: after.queue, startedAt: appt.started_at });
+            reason = describeFinish({
+                newStatus, clientName, minutes, entry, after: after.queue, startedAt: appt.started_at, mode: after.mode,
+            });
         }
         await logEvent(tx, {
             tenantId, date: appt.date, professionalId: appt.professional_id, event: starting ? 'reserva' : 'fin',

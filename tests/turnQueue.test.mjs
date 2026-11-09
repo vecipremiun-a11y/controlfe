@@ -506,3 +506,119 @@ test('Registro obligatorio: llegada, posición inicial, inicio/término, cliente
     console.log('\n  Registro del día:');
     for (const e of log) console.log(`    [${e.event}] ${e.professional_name}: ${e.reason}`);
 });
+
+// ============================================
+// Modo "por llegada y desocupación" (release_order)
+// ============================================
+
+test('Por desocupación: parte por llegada y después manda quien se desocupa primero', async () => {
+    const s = await createShop({ barbers: ['A', 'B', 'C'], mode: 'release_order' });
+    await s.arrive('A', '09:00');
+    await s.arrive('B', '09:05');
+    await s.arrive('C', '09:10');
+    assert.deepEqual(s.order(), ['A', 'B', 'C']);
+    assert.equal(s.next(), 'A');
+
+    await s.client('C1', '09:15');
+    const r1 = await s.auto('09:15');
+    assert.equal(r1.professional.name, 'A');
+    assert.deepEqual(s.order(), ['B', 'C', 'A'], 'A toma cliente y pasa al final');
+    assert.match(r1.reason, /pasa al final/);
+    assert.equal(s.entry('A').pending, false, 'quien atiende por turno no tiene prioridad pendiente');
+
+    await s.client('C2', '09:16');
+    assert.equal((await s.auto('09:16')).professional.name, 'B');
+    assert.deepEqual(s.order(), ['C', 'A', 'B']);
+
+    // B termina antes que A: vuelve a la fila primero, detrás de C que ya esperaba.
+    const fb = await s.finish('B', '09:30');
+    assert.deepEqual(s.order(), ['C', 'B', 'A']);
+    assert.match(fb.reason, /Se desocupa y entra a la fila en la posición #2/);
+    await s.finish('A', '09:45');
+    assert.deepEqual(s.order(), ['C', 'B', 'A'], 'A se desocupó después que B: queda detrás');
+
+    await s.client('C3', '09:50');
+    assert.equal((await s.auto('09:50')).professional.name, 'C');
+    await s.client('C4', '09:51');
+    assert.equal((await s.auto('09:51')).professional.name, 'B', 'B se desocupó antes que A, aunque A llegó primero');
+    assert.deepEqual(s.order(), ['A', 'C', 'B']);
+    assert.equal(s.next(), 'A');
+});
+
+test('Por desocupación: atender a un cliente que lo pidió o una reserva también lo manda al final', async () => {
+    const s = await createShop({ barbers: ['A', 'B', 'C'], mode: 'release_order' });
+    await s.arrive('A', '09:00');
+    await s.arrive('B', '09:01');
+    await s.arrive('C', '09:02');
+
+    // A era el primero, pero atiende a un cliente que lo pidió: pasa al final.
+    const r = await s.request('A', 'Fiel de A', '09:05');
+    assert.equal(r.kind, 'pedido');
+    assert.match(r.reason, /pasa al final/);
+    assert.deepEqual(s.order(), ['B', 'C', 'A']);
+    assert.equal(s.entry('A').pending, false);
+    assert.equal(s.next(), 'B');
+
+    await s.client('C1', '09:06');
+    assert.equal((await s.auto('09:06')).professional.name, 'B');
+    assert.deepEqual(s.order(), ['C', 'A', 'B']);
+    const fa = await s.finish('A', '09:20');
+    assert.deepEqual(s.order(), ['C', 'A', 'B'], 'A vuelve detrás de C, que ya esperaba');
+    assert.match(fa.reason, /Se desocupa y entra a la fila en la posición #2/);
+    await s.finish('B', '09:30');
+    assert.deepEqual(s.order(), ['C', 'A', 'B']);
+
+    // Reserva de la agenda: C era el primero y pasa al final igual que con un turno.
+    const apptId = randomUUID();
+    await s.db.execute({
+        sql: `INSERT INTO appointments (id, tenant_id, professional_id, service_id, date, start_time, end_time, status, client_name)
+              VALUES (?, ?, 'pC', 's-corte', ?, '09:35', '10:05', 'reservado', 'Reserva de C')`,
+        args: [apptId, TENANT, DAY],
+    });
+    const appt = (await s.db.execute({ sql: `SELECT * FROM appointments WHERE id = ?`, args: [apptId] })).rows[0];
+    await s.db.execute({ sql: `UPDATE appointments SET status = 'en_atencion' WHERE id = ?`, args: [apptId] });
+    const rs = await recordAppointmentStatus({ tenantId: TENANT, appointment: appt, newStatus: 'en_atencion', now: at('09:35'), db: s.db });
+    s.print('09:35', 'C inicia una reserva', rs.queue);
+    assert.match(rs.reason, /pasa al final/);
+    assert.deepEqual(s.order(), ['A', 'B', 'C']);
+    await s.finish('C', '10:00');
+    assert.deepEqual(s.order(), ['A', 'B', 'C'], 'C no recupera el primer lugar al terminar la reserva');
+    assert.equal(s.next(), 'A');
+
+    // Anular devuelve al barbero a donde estaba.
+    await s.client('C2', '10:01');
+    const r2 = await s.auto('10:01');
+    assert.equal(r2.professional.name, 'A');
+    assert.deepEqual(s.order(), ['B', 'C', 'A']);
+    const u = await undoAssignment({ tenantId: TENANT, appointmentId: r2.appointmentId, now: at('10:02'), db: s.db });
+    s.print('10:02', 'Se anula la asignación de C2', u.queue);
+    assert.deepEqual(s.order(), ['A', 'B', 'C']);
+    assert.equal(s.next(), 'A');
+});
+
+test('Por desocupación: quien llega tarde o vuelve entra detrás de los que esperan cliente', async () => {
+    const s = await createShop({ barbers: ['A', 'B', 'C'], mode: 'release_order' });
+    await s.arrive('A', '09:00');
+    await s.arrive('B', '09:01');
+    await s.client('C1', '09:05'); await s.auto('09:05'); // A atiende por turno
+    await s.arrive('C', '09:10');
+    assert.deepEqual(s.order(), ['B', 'C', 'A'], 'C entra detrás de B; A vuelve a la fila al desocuparse');
+    await s.leave('B', '12:00');
+    await s.arrive('B', '13:00');
+    assert.deepEqual(s.order(), ['C', 'B', 'A']);
+    assert.equal(s.next(), 'C');
+});
+
+test('Cambiar al modo por desocupación durante el día respeta quién se desocupó primero', async () => {
+    const s = await createShop({ barbers: ['A', 'B'] }); // por turno parejo
+    await s.arrive('A', '09:00');
+    await s.arrive('B', '09:01');
+    await s.client('C1', '09:05'); await s.auto('09:05'); // A
+    await s.client('C2', '09:06'); await s.auto('09:06'); // B
+    await s.finish('B', '09:20');
+    await s.finish('A', '09:40');
+    assert.deepEqual(s.order(), ['A', 'B'], 'por turno parejo manda el orden de llegada');
+    await s.db.execute({ sql: `UPDATE tenants SET config = ? WHERE id = ?`, args: [JSON.stringify({ assign_mode: 'release_order' }), TENANT] });
+    const q = await s.state('09:41');
+    assert.deepEqual(q.map((e) => e.name), ['B', 'A'], 'por desocupación va primero B, que terminó antes');
+});

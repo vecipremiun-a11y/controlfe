@@ -322,8 +322,13 @@ export default function ConfiguracionPage() {
                                             },
                                             {
                                                 value: 'round_robin',
-                                                label: 'Por turno (orden de llegada)',
+                                                label: 'Por turno parejo (orden de llegada fijo)',
                                                 desc: 'Cada barbero conserva su orden de llegada y todos atienden la misma cantidad por turno: le toca al libre que lleva menos turnos y, entre iguales, al que llegó primero. Si está ocupado atiende el siguiente libre, y el ocupado recupera su turno al terminar. Los clientes que piden a un barbero no consumen turno.',
+                                            },
+                                            {
+                                                value: 'release_order',
+                                                label: 'Por llegada y desocupación',
+                                                desc: 'La fila parte en el orden en que llegan los barberos. El que empieza a atender pasa al final y vuelve a la fila cuando se desocupa, detrás de los que ya estaban libres: le toca al que lleva más tiempo esperando. Vale para cualquier cliente: por turno, uno que pidió a ese barbero o una reserva.',
                                             },
                                         ].map(opt => (
                                             <label
